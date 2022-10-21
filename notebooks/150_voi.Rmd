@@ -1,0 +1,149 @@
+---
+title: "150_voi_test"
+author: "Max Schofield"
+date: "2022-10-21"
+output:
+  html_notebook:
+  df_print: default
+highlight: pygments
+toc: yes
+toc_float:
+  toc_collapsed: true
+toc_depth: 2
+
+editor_options:
+  chunk_output_type: inline
+---
+
+```{=html}
+<style>
+body {
+text-align: justify}
+</style>
+```
+
+# Setup
+
+Knitr options 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load R packages 
+
+```{r load packages}
+foo <- function(x){
+  for( i in x ){
+    #  require returns TRUE invisibly if it was able to load package
+    if( ! require( i , character.only = TRUE ) ){
+      #  If package was not able to be loaded then re-install
+      install.packages( i , dependencies = TRUE )
+      #  Load package after installing
+      require( i , character.only = TRUE )
+    }
+  }
+}
+
+#  Then try/install packages...
+foo( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here", "sf", "extrafont", "patchwork", "terra") )
+
+# get fishwatch r independently 
+if (!require("fishwatchr")) {devtools::install_github("GlobalFishingWatch/fishwatchr")}
+library(fishwatchr)
+
+```
+
+Establish connection to BigQuery project
+
+```{r con}
+con <- DBI::dbConnect(drv = bigrquery::bigquery(), 
+                      project = "world-fishing-827", 
+                      use_legacy_sql = FALSE)
+```
+
+Set commonly used parameters for mapping
+
+```{r}
+# define bounding box/area of interest
+# bbox <- data.frame(x_min = -8,
+#                    x_max = 3,
+#                    y_min = 0,
+#                    y_max = 7)
+# what projection should be used for mapping
+best_proj <- fishwatchr::gfw_projections("Equal Earth")$proj_string
+# best_proj <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+```
+
+
+# Establish Vessel of Interest 
+
+This query will extract raw spire AIS data for the vessels with MMSI prefix 150 that 
+had transmissions in either the south-east Pacific squid fishery or the southwest 
+Atlantic squid fishery
+
+Calling the table directly as it is saved due to being a large query
+```{r, echo=FALSE}
+q_voi_ais <- c("SELECT * FROM `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2021_20Oct2022`")
+
+voi_ais <- fishwatchr::gfw_query(query = q_voi_ais,
+                                 run_query = TRUE, 
+                                 con = con)$data
+```
+
+Now lets try plot out some of this effort data to share with JAC partners 
+
+```{r warning=FALSE}
+# lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
+voi_ais$lat_bin <- round(voi_ais$lat,1)
+voi_ais$lon_bin <- round(voi_ais$lon,1)
+
+presence <- voi_ais %>%
+  group_by(lat_bin, lon_bin) %>%
+    summarise(
+      positions = n(), 
+    )
+
+  presence %>%
+  recenter_raster(raster_df = .,
+                  res = 1,
+                  x_lab = 'lon_bin',
+                  y_lab = 'lat_bin',
+                  fill_lab = 'positions',
+                  center = -80) %>%
+  ggplot() +
+  geom_raster(aes(x = lon_bin,
+                  y = lat_bin,
+                  fill = positions)) +
+  geom_gfw_land(theme = 'light', center = -80) +
+  geom_gfw_eez(theme = 'light', center = -80, alpha = 0.05) +
+  scale_fill_gradientn(colors = gfw_palette('map_effort_dark'),
+                       limits = c(0,10000),
+                       oob = scales::squish,
+                       na.value = NA) +
+  labs(fill = 'AIS Positions') +
+  theme_gfw_map(theme = 'light')
+
+ggsave(here::here("outputs", "figures", "voi_ais_map.png"))
+
+```
+
+
+Save the data in the repo to save pulling from big query each time 
+```{r}
+voi_ais %>% write_csv(here::here("data", ".", "voi_ais.csv"))
+voi_ais %>% saveRDS(here::here("data", ".", "voi_ais.rds"))
+# f_eff <- read_rds(here::here("data", ".", "voi_ais.rds"))
+```
+
+Now test out a regional map with machine learning derived fishing events 
+
+```{r, echo=F}
+q_voi_fish_iattc <- readr::read_file(file = here::here("queries", ".", "fishing_events_voi_21Oct2022.sql"))
+
+voi_ml_fish_iattc <- fishwatchr::gfw_query(query = q_voi_fish,
+                                 run_query = TRUE, 
+                                 con = con)$data
+
+```
+

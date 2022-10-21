@@ -17,24 +17,22 @@ This repository is designed to identify and describe the activities of vessels
 which are members of a fleet of likely Chinese Squid jiggers. The vessels are characterised
 by having and MMSI prefix '150' and consistently changing their name transmitted on 
 AIS while operating. Individual vessels in this fleet have been the subject of two
-Joint Analytical Cell (JAC) intelligence reports. This analysis aims to investigate and 
-escribe the general trends of the fleet. 
+Joint Analytical Cell (JAC) intelligence reports (001a-c, 004). This analysis aims to investigate and 
+describe the general trends of the fleet. 
 
-## Structure and descriptions
+This also serves as a place for Max to get used to GFW data, queries, gfwr package and
+the github and Rstudio workflow. 
 
-    |- README.md		<- Top-level README on how to use this repo
-    |- data			    <- Data files. Create subfolders as necessary.
-    |- docs			    <- Documentation.
-    |- models		    <- Trained models, model summaries, etc.
-    |- notebooks 	    <- Jupyter notebooks and R markdown. Naming convention TBD. Use jupytext to convert
-    |				       to .py before committing and do not commit the notebook itself. Suggest having
-    |				       subfolders for different subsets of analysis. Could also have different
-    |				       subfolders for each person if that makes more sense for your project/team.
-    |- outputs		    <- Models results, static reports, etc. Create  additional subfolders as necessary.
-    |    |- figures	    <- Create versioned figures folders if desired.
-    |- queries		    <- SQL files (.sql, .jinja2, etc). Create subfolders as necessary. When creating
-    |				       new tables in BigQuery, be sure to use a schema with good field descriptions.
-    |- scripts		    <- Regular python and R files. These may use code from <module> but are not
-    |				       notebooks. A good place for scripts that run data pipelines, train models, etc.
-    |- .gitignore	    <- Modify as necessary.
+## Repository Structure and descriptions
+
+* README.md		- Top-level README on how to use this repo
+* data			    - Data files
+* docs			    - Documentation.
+* models		    - Trained models, model summaries, etc.
+* notebooks 	  -  R markdown scripts for analysis
+* outputs		    - Models results, static reports, etc.
+    * figures	  - Figures from analysis 
+* queries		    - SQL queries 
+* scripts		    - Regular  R files.
+* .gitignore	   - Modify as necessary.
     
