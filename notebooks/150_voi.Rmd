@@ -78,18 +78,128 @@ best_proj <- fishwatchr::gfw_projections("Equal Earth")$proj_string
 
 # Establish Vessel of Interest 
 
-This query will extract raw spire AIS data for the vessels with MMSI prefix 150 that 
-had transmissions in either the south-east Pacific squid fishery or the southwest 
-Atlantic squid fishery
-
 Calling the table directly as it is saved due to being a large query
+
+First question is establish how many vessels have the 150 MMSI prefix in total. 
+
 ```{r, echo=FALSE}
 q_voi_ais <- c("SELECT * FROM `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2021_20Oct2022`")
 
 voi_ais <- fishwatchr::gfw_query(query = q_voi_ais,
                                  run_query = TRUE, 
                                  con = con)$data
+n_distinct(voi_ais$ssvid)
 ```
+
+This is querying the raw AIS data and there is `r n_distinct(voi_ais$ssvid)` vessels in total. 
+
+
+```{r, echo=FALSE}
+outside_chn <- readr::read_file(file = here::here("queries", ".", "outside_CHN.sql"))
+
+outside_chn_vessels <- fishwatchr::gfw_query(query = outside_chn,
+                                 run_query = TRUE,
+                                 con = con)$data
+
+# restrict down to genuine VOI
+outside_AIS <- filter(voi_ais, ssvid %in% c(outside_chn_vessels$ssvid))
+
+# get rid of percentage - indicator of gear markers 
+non_per <- filter(outside_AIS, !stringr::str_detect(shipname, '\\%'))
+
+# get rid of ending in v - another indicator of gear markers
+non_per_v <- filter(non_per, !stringr::str_detect(shipname, 'v$|V$'))
+
+# get rid of ending in NET another indicator of gear markers
+no_per_v_net <- filter(non_per_v, !stringr::str_detect(shipname, 'NET'))
+
+# get rid of - in the name as another indicator of gear markers
+no_per_v_net_dash <- filter(no_per_v_net, !stringr::str_detect(shipname, '-'))
+
+# write out data to visaulise
+write.csv(no_per_v_net_dash, './data/non_gear_outside_CHN.csv', row.names = F)
+
+n_distinct(outside_AIS$ssvid)
+n_distinct(no_per_v_net_dash$ssvid)
+
+# need to be careful not to remove AIS which is 
+voi <- unique(no_per_v_net_dash$ssvid)
+df <- filter(voi_ais, ssvid %in% voi)
+
+nrow(df)
+nrow(voi_ais)
+nrow(no_per_v_net_dash)
+```
+
+Of the `r n_distinct(voi_ais$ssvid)` total MMSIs associated with the 150 prefix,  `r n_distinct(outside_chn_vessels$ssvid)` transmitted outside the Chinese EEZ. 
+
+Of the MMSIs operating outside China many have names which indicated they are associated 
+with likely fishing gear. MMSIs associated with likely gear was removed from our vessel
+of interest list based on removing MMSIs either transmitting a %, a Voltage indicator (V), 
+the word 'NET' in the shipname, which are indicators of fishing gear. 
+
+This filtering removed `r n_distinct(outside_AIS$ssvid) - n_distinct(no_per_v_net_dash$ssvid)`
+MMSIs from our fleet of interest. Resulting in `r n_distinct(no_per_v_net_dash$ssvid)` remaining 
+in our vessels of interest. 
+
+# How many vessels have links to China through Name  
+
+```{r, echo=FALSE}
+table(no_per_v_net_dash$shipname)
+
+names_mmsi <- non_gear %>% group_by(shipname) %>% summarise(vesels = n_distinct(ssvid), 
+                                                           ssvids = str_c(unique(ssvid), collapse=", "))
+
+n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'LU'))$shipname)
+
+voi150400453 <- filter(no_per_v_net_dash, ssvid == 150400453)
+fuyuanyu_715 <- filter(voi150400453, shipname == 'FUYUANYU 715')
+
+write.csv(voi150400453, '150400453.csv', row.names = F)
+write.csv(fuyuanyu_715, 'fuyuanyu_715.csv', row.names = F)
+
+```
+
+The vessel of interest have five distinct vessel name groupings within them
+1. names starting with FU of which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'FU'))$shipname)` distinct names with FU YUAN YU ... the most common pattern
+2. names starting with HAI of which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'HAI'))$shipname)` distinct names with HAI YANG ... the most common pattern
+3. names starting with LU RONG which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'LU'))$shipname)` distinct names with LURONG YUAN YU ... the most common pattern
+4. names starting with SHUN HANG which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'SHUN'))$shipname)` distinct names following this pattern. This aligns with SHUN HANG which are an AIS unit manufacturer and may relate to units being reset.
+
+One further vessel had the name LU QING YUAN YU 290. Only one MMSI transmitted this vessel name. 
+
+Clear vessel names with some iterations in the dataset
+- FU YUAN YU 715
+- FU YUAN YU 717
+- FU YUAN YU 9993
+- FU YUAN YU 9994
+- HAI HANG 1 
+- HAI HANG 2
+- HAI HANG 3
+- HAI HANG 5
+- HAI HANG 6 
+- LU QING YUAN YU 290
+- LU RONG YUAN YU 195 
+- LU RONG YUAN YU 581 
+- LU RONG YUAN YU 715 
+- LU RONG YUAN YU 197 
+- LU RONG YUAN YU 20 
+- LU RONG YUAN YU 277 
+- LU RONG YUAN YU 278 
+- LU RONG YUAN YU 717 
+- LU RONG YUAN YU 715 
+- SHUN HANG 1 
+- SHUN HANG 2
+- SHUN HANG 3
+- SHUN HANG 5
+- SHUN HANG 6
+
+
+# How many vessels have links to China through location   
+
+Three MMSI transmitted positions within the Chinese EEZ. This may point to vessel 
+changing to official MMSI to enter the Chinese EEZ.  
+
 
 Now lets try plot out some of this effort data to share with JAC partners 
 
@@ -133,17 +243,55 @@ Save the data in the repo to save pulling from big query each time
 ```{r}
 voi_ais %>% write_csv(here::here("data", ".", "voi_ais.csv"))
 voi_ais %>% saveRDS(here::here("data", ".", "voi_ais.rds"))
-# f_eff <- read_rds(here::here("data", ".", "voi_ais.rds"))
+f_eff <- read_rds(here::here("data", ".", "voi_ais.rds"))
 ```
 
 Now test out a regional map with machine learning derived fishing events 
 
 ```{r, echo=F}
-q_voi_fish_iattc <- readr::read_file(file = here::here("queries", ".", "fishing_events_voi_21Oct2022.sql"))
+mmsi_412331284 <- c("
+SELECT 
+  * 
+FROM `world-fishing-827.pipe_production_v20201001.messages_scored_20221111`
+WHERE 
+  ssvid = '412331284' AND 
+  DATE(timestamp) BETWEEN '2020-11-01' AND DATE(CURRENT_DATE())")
 
-voi_ml_fish_iattc <- fishwatchr::gfw_query(query = q_voi_fish,
+
+mmsi_412331284_ais <- fishwatchr::gfw_query(query = mmsi_412331284,
                                  run_query = TRUE, 
                                  con = con)$data
+head(mmsi_412331284_ais)
+
+mmsi_412331284_ais$regions[1]$eez
+
+
+out_dat <- dplyr::select(mmsi_412331284_ais, source, type, ssvid, timestamp, 
+                        lon, lat, speed, course, heading, shipname, callsign, 
+                        destination, imo, shiptype, receiver_type, receiver, 
+                        length, width, status)
+write.csv(out_dat, 'LRYY715 412331284.csv', row.names = F)
+
+mmsi_150400453 <- c("
+SELECT 
+  * 
+FROM `world-fishing-827.pipe_production_v20201001.messages_scored_20221111`
+WHERE 
+  ssvid = '150400453' AND 
+  DATE(timestamp) BETWEEN '2020-11-01' AND DATE(CURRENT_DATE())")
+
+
+mmsi_150400453_ais  <- fishwatchr::gfw_query(query = mmsi_150400453,
+                                 run_query = TRUE, 
+                                 con = con)$data
+head(mmsi_150400453_ais)
+
+
+out_dat2 <- dplyr::select(mmsi_150400453_ais, source, type, ssvid, timestamp, 
+                        lon, lat, speed, course, heading, shipname, callsign, 
+                        destination, imo, shiptype, receiver_type, receiver, 
+                        length, width, status)
+write.csv(out_dat2, 'LRYY715 150400453.csv', row.names = F)
 
 ```
 
