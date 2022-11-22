@@ -252,7 +252,7 @@ Now test out a regional map with machine learning derived fishing events
 mmsi_412331284 <- c("
 SELECT 
   * 
-FROM `world-fishing-827.pipe_production_v20201001.messages_scored_20221111`
+FROM `world-fishing-827.pipe_production_v20201001.messages_segmented_20221111`
 WHERE 
   ssvid = '412331284' AND 
   DATE(timestamp) BETWEEN '2020-11-01' AND DATE(CURRENT_DATE())")

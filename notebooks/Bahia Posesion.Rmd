@@ -1,0 +1,220 @@
+---
+title: "Bahia Posesion - Chile"
+author: "Max Schofield"
+date: "2022-11-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+foo <- function(x){
+  for( i in x ){
+    #  require returns TRUE invisibly if it was able to load package
+    if( ! require( i , character.only = TRUE ) ){
+      #  If package was not able to be loaded then re-install
+      install.packages( i , dependencies = TRUE )
+      #  Load package after installing
+      require( i , character.only = TRUE )
+    }
+  }
+}
+
+#  Then try/install packages...
+foo( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here", "sf", "extrafont", "patchwork", "terra") )
+
+# get fishwatch r independently 
+if (!require("fishwatchr")) {devtools::install_github("GlobalFishingWatch/fishwatchr")}
+library(fishwatchr)
+
+```
+
+```{r con}
+con <- DBI::dbConnect(drv = bigrquery::bigquery(), 
+                      project = "world-fishing-827", 
+                      use_legacy_sql = FALSE)
+```
+
+## Brief 
+
+Joint Analytical Cell has been conducting intelligence reports (JAC X,  JAC Y) on 
+Chinese flagged squid vessels that are operating in the southwest Atlantic and 
+southeast Pacific fishing grounds. The vessels were the subject of JAC intelligence 
+because they consistently change identity on AIS in an apparent effort to hide their 
+activities. These vessels have been transiting between the Atlantic and Pacific 
+fishing grounds through the Straight of Magellan, Chile where on route they often 
+stop in Bahia Posesión, Chile.
+
+This analysis investigates the vessel activity in Bahia Posesion to try and ascertain
+the who, where based on GFW AIS data. 
+
+```{r}
+# define bounding box/area of interest
+bbox <- data.frame(x_min = -69.40,
+                   x_max = -69.13,
+                   y_min = -52.31,
+                   y_max = -52.20)
+# what projection should be used for mapping
+best_proj <- fishwatchr::gfw_projections("Equal Earth")$proj_string
+# best_proj <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+```
+
+
+```{r}
+bp_q <- readr::read_file(file = here::here("queries", ".", "Bahia_Posesion_vessel_info.sql"))
+
+bp <- fishwatchr::gfw_query(query = bp_q,
+                                 run_query = TRUE,
+                                 con = con)$data
+
+# write.csv(distinct(dplyr::select(bp, ssvid, best_flag, best_vessel_class, vessel_name)), 'Bahia_Posession_2022.csv')
+write.csv(distinct(dplyr::select(bp, ssvid, best_flag, best_vessel_class, vessel_name)), 'Bahia_Posession_2021.csv')
+
+```
+
+Vessel activity in the Bahia Posesion peaked had distinct peaks May 2021 and June 2022. 
+There is very little activity on AIS in Bahia Posesion outside of these periods. 
+
+
+```{r}
+# get rid of duplicate values based on name / auths 
+bp_ves_num <- bp[!duplicated(bp[,1:5]), c(1:5)]
+
+# make month a factor to allow values for missing levels for plotting 
+bp_ves_num$month <- factor(bp_ves_num$month, levels = c(1:12))
+
+# create a complete df for showing vessel movements through time 
+plot_df <- bp_ves_num %>% group_by(year, month)  %>% summarise(
+  vessels = n_distinct(ssvid)
+) %>% complete(month)
+
+# make NAs 0s 
+plot_df$vessels[is.na(plot_df$vessels)] <- 0
+
+# make 2022 12 an NA as its in the future  
+plot_df$vessels[plot_df$year==2022 & plot_df$month == 12] <- NA
+
+# plot showing vessel numbers through time - gfw theme 
+p1 <- ggplot(plot_df)+
+  geom_point(aes(x=month, y=vessels, colour=factor(year)))+
+  geom_line(aes(x=as.numeric(as.character(month)), y=vessels, colour=factor(year))) +
+  scale_x_discrete(breaks=1:12,labels=c('Jan', 'Feb', 'Mar', 'Apr', 'May', 
+                      'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'))+
+  scale_colour_manual(values=gfw_palette('primary')) +
+  labs(x='Month', y='Vessels', colour='Year')+
+  theme_gfw() +
+  theme(axis.text=element_text(size=12), axis.title=element_text(size=14,face="bold"))
+
+# run this direct in console 
+# setwd('./outputs/figures')
+ggsave('Bahia_posesion_vessels_2021_2022.png', plot=p1, device='png')
+
+```
+Look at the length of stay in the area 
+
+```{r}
+dates_bp_q <- c("
+SELECT 
+  DISTINCT ssvid,
+  DATE(timestamp) AS date, 
+  EXTRACT(year FROM timestamp) AS year,
+FROM `world-fishing-827.scratch_max.bahia_posesion_raw_ais`
+")
+
+
+dates_bp <- fishwatchr::gfw_query(query = dates_bp_q,
+                                 run_query = TRUE, 
+                                 con = con)$data
+
+plot_df2 <- dates_bp %>% group_by(ssvid, year) %>% summarise(days = n_distinct(date))
+
+p2 <- ggplot(plot_df2)+
+  geom_bar(aes(x=days, fill=factor(year)), 
+           position = position_dodge2(preserve = 'single')) +
+  scale_fill_manual(values=gfw_palette('primary')) +
+  labs(x='Days spent in Bahia Posesion', y='Frequency', fill='Year')+
+  theme_gfw()+
+  theme(axis.text=element_text(size=11), axis.title=element_text(size=12,face="bold"))
+
+# run this direct in console 
+ggsave('Bahia_posesion_length_of_stay_2021_2022.png',plot=p2, device='png')
+
+```
+
+Look at what gears are getting used. 
+
+```{r}
+# plot of the gears 
+
+# set NA to unknown
+bp_ves_num$best_vessel_class[is.na(bp_ves_num$best_vessel_class)] <- 'unknown'
+
+p2 <- ggplot(bp_ves_num)+
+  geom_bar(aes(x=best_vessel_class, fill=factor(year)), 
+           position = position_dodge2(preserve = 'single')) +
+  scale_fill_manual(values=gfw_palette('primary')) +
+  labs(x='Vessel Type', y='Vessels', fill='Year')+
+  theme_gfw()+
+  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), 
+        axis.text=element_text(size=11), axis.title=element_text(size=12,face="bold"), 
+        legend.title=element_text(size=12), legend.text=element_text(size=11)) 
+
+# run this direct in console 
+ggsave('Bahia_posesion_vessel_type_2021_2022.png', device='png')
+
+```
+Look at what flags the vessels are flying. 
+
+```{r}
+# plot of the gears 
+
+# set NA to unknown
+bp_ves_num$best_flag[is.na(bp_ves_num$best_flag)] <- 'unknown'
+
+# just keep ssvid, flag and vessel type 
+plot_df3 <- bp_ves_num[!duplicated(bp_ves_num[,c(1,4,5)]),c(1,4,5)]
+
+p3 <- ggplot(plot_df3)+
+  geom_bar(aes(x=best_vessel_class, fill=factor(best_flag)), 
+           position = position_dodge2(preserve = 'single')) +
+  scale_fill_manual(values=gfw_palette('chart')) +
+  labs(x='Vessel Type', y='Vessels', fill='Flag State')+
+  theme_gfw()+
+  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), 
+        axis.text=element_text(size=11), axis.title=element_text(size=12,face="bold"), 
+        legend.title=element_text(size=12), legend.text=element_text(size=11)) 
+
+# run this direct in console 
+ggsave('Bahia_posesion_vessel_type_flag_2021_2022.png', device='png')
+```
+
+Look at the vessels authorisations
+
+```{r}
+auth_bp_q <- readr::read_file(file = here::here("queries", ".", "authorisations_bp.sql"))
+
+auth_bp <- fishwatchr::gfw_query(query = auth_bp_q,
+                                 run_query = TRUE,
+                                 con = con)$data
+
+ggplot(auth_bp) +
+  geom_bar(aes(x=authorisation))
+auth_bp %>% 
+  group_by(authorisation) %>% 
+  summarise(count=n()) %>%
+  plot_donut_chart(group_var = authorisation,
+                   value_var = count,
+                   donut_title = 'Authorisation level of fleet') +
+  labs(fill = 'Known Authorisations Sources')
+   
+
+```
+
+Look for any high risk vessels
+
+```{r}
+
+
+```
