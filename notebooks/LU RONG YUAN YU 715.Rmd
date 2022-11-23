@@ -1,0 +1,569 @@
+---
+title: "LU RONG YUAN YU 715"
+author: "Max Schofield"
+date: "2022-11-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+foo <- function(x){
+  for( i in x ){
+    #  require returns TRUE invisibly if it was able to load package
+    if( ! require( i , character.only = TRUE ) ){
+      #  If package was not able to be loaded then re-install
+      install.packages( i , dependencies = TRUE )
+      #  Load package after installing
+      require( i , character.only = TRUE )
+    }
+  }
+}
+
+#  Then try/install packages...
+foo( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here", "sf", "extrafont", "patchwork", "terra", "rnaturalearthhires") )
+
+# get fishwatch r independently 
+if (!require("fishwatchr")) {devtools::install_github("GlobalFishingWatch/fishwatchr")}
+library(fishwatchr)
+
+# # Get Rnatural resources from https://ropensci.r-universe.dev/ui#packages
+# # Enable repository from ropensci
+# options(repos = c(
+#   ropensci = 'https://ropensci.r-universe.dev',
+#   CRAN = 'https://cloud.r-project.org'))
+# # Download and install rnaturalearthhires in R
+# install.packages('rnaturalearthhires')
+
+
+if (!require("extrafont"))
+  install.packages("extrafont")
+
+# Unfortunately `extrafont::font_import()` will fail on latest Rttf2pt1 package...
+# so we need to install old version
+devtools::install_version("Rttf2pt1", version = "1.3.8")
+
+# Import fonts to R
+# This will take few minutes
+extrafont::font_import()
+
+```
+
+```{r con}
+con <- DBI::dbConnect(drv = bigrquery::bigquery(), 
+                      project = "world-fishing-827", 
+                      use_legacy_sql = FALSE)
+```
+
+
+Pull data from research fishing to 
+
+```{r, include=FALSE}
+# get track data for plotting 
+
+voi_q <- readr::read_file(file = here::here("queries", ".", "bp_voi_ais_gear_analysis.sql"))
+
+
+
+voi_atl <- fishwatchr::gfw_query(query = glue::glue(voi_q, 
+                                              date_start = '2022-01-01',
+                                              date_end = '2022-01-31', 
+                                              voi = '412331284'),
+                            run_query = TRUE,
+                            con = con)$data
+
+```
+
+
+```{r, include=FALSE, warning=FALSE}
+# try using off the shelf plotting code 
+
+
+plot_df <- voi_atl %>% filter(between(as.Date(timestamp),as.Date('2022-01-03'),
+                                                 as.Date('2022-01-08')))  
+
+
+# new bounding box buffered 10 degrees
+bounding <- transform_box(xlim = c(min(vessel_track$lon) - 0.1,
+                                               max(vessel_track$lon) + 0.1),
+                                      ylim = c(min(vessel_track$lat) - 0.1,
+                                               max(vessel_track$lat) + 0.1),
+                                      output_crs = gfw_projections('Equal Earth')$proj)
+
+fishing_track_review(track_df = plot_df,
+                     # bounding_box_man = bounding,
+                     color_fishing = FALSE,
+                     gfw_proj_name = 'Equal Earth', 
+                     globe_location = 'lowerright',
+                     time_series_labels = c('speed_knots'),
+                     vessel_name = 'LU RONG YUAN YU 715')
+
+# works ok - could be improved. Manual bounding box not working.
+
+# higher zoom on vessel track 
+# add EEZ boundaries 
+# colour track by speed
+
+```
+
+```{r, include=FALSE}
+# try dockering back end function components to make a bespoke plot 
+
+# plot time series component to show the vessels speed through time  
+
+df <- df %>%
+  dplyr::mutate(next_time = dplyr::lead(timestamp),
+                time_diff_hr = as.numeric(difftime(next_time,
+                                                   timestamp,
+                                                   tz = 'UTC',
+                                                   units = 'sec'))/3600,
+                next_far = ifelse(time_diff_hr > 3, TRUE, FALSE),
+                prev_far = ifelse(lead(next_far) == TRUE, TRUE, FALSE),
+                nnet_score = as.character(ifelse(next_far == TRUE | prev_far == TRUE | 
+                                                   is.na(nnet_score), 2 , nnet_score)))
+
+line_geom <-
+  geom_path(data = df,
+            aes(timestamp,
+                eval(as.symbol({{var}})),
+                color = factor(nnet_score),
+                size = factor(nnet_score),
+                group  = ssvid))
+# line_geom <-
+#   geom_path(
+#     data = df,
+#     aes(x = timestamp,
+#         y = eval(as.symbol({{var}})),
+#         color = ssvid))
+
+
+line_colorscale <-
+  scale_color_manual('',
+                     breaks = c('0','1'),
+                     values = c('#76ADAD',
+                                '#E34D4E',
+                                'grey85'),
+                     labels = c('Steaming','Fishing'))
+
+# line_colorscale <-
+#   scale_color_manual("",
+#                      values = "#76ADAD",
+#                      labels = 'Vessel Track')
+
+
+line_sizescale <- scale_size_manual('',
+                  breaks = c('0','1'),
+                  values = c(0.5,0.5,0.3),
+                  labels = c('Steaming','Fishing'))
+
+# line_sizescale <- scale_size_manual('',
+#                                  values = 0.5)
+
+ggplot() +
+  line_geom +
+  point_geom +
+  line_sizescale +
+  line_colorscale +
+  y_axis +
+  scale_x_datetime('\nDate') +
+  fishwatchr::theme_gfw() +
+  theme(legend.position = 'none',
+        legend.justification = 'right',
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.background = element_rect(fill = '#ffffff'),
+        panel.border = element_rect(fill = NA, color = '#000000'),
+        plot.background = element_rect(fill = '#ffffff'),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank())
+
+
+plot_vessel_track_fish <- function(df,
+                                   bounding_box_man = NA,
+                                   color_fishing = TRUE,
+                                   color_by = 'nnet_score',
+                                   map_res = 10,
+                                   theme = 'light',
+                                   buffer = 0.5,
+                                   add_gridlines = TRUE,
+                                   gfw_proj_name = 'Equal Earth',
+                                   vessel_name = 'Unspecified') {
+
+  # specify mapping variables
+  land_sf <- rnaturalearth::ne_countries(scale = map_res,
+                                         returnclass = "sf")
+
+  if (is.na(bounding_box_man)) {
+    bounding_box <- fishwatchr::transform_box(xlim = c(min(df$lon) - buffer, max(df$lon) + buffer),
+                                              ylim = c(min(df$lat) - buffer, max(df$lat) + buffer),
+                                              output_crs = fishwatchr::gfw_projections(gfw_proj_name)$proj_string)
+  } else {
+    bounding_box <- bounding_box_man
+  }
+
+
+  # make track
+  track_sf <- make_track(df,
+                         color_by = color_by)
+
+  vessel_mmsi <- track_sf %>%
+    sf::st_drop_geometry(.) %>%
+    dplyr::distinct(ssvid) %>%
+    dplyr::pull(ssvid)
+
+  if (theme == 'light') {
+    land_fill = fishwatchr::gfw_palettes$map_country_light[1]
+    land_color = fishwatchr::gfw_palettes$map_country_light[2]
+    if (add_gridlines == TRUE) {
+      grid_color = 'grey85'
+      } else {
+        grid_color = '#ffffff'
+      }
+  } else {
+    land_fill = fishwatchr::gfw_palettes$map_country_dark[1]
+    land_color = fishwatchr::gfw_palettes$map_country_dark[2]
+
+    if (add_gridlines == TRUE) {
+      grid_color = '#4F576A'
+      } else {
+        grid_color = '#0a1738'
+      }
+    }
+
+  if (color_fishing == FALSE) {
+    vessel_track_geom <-
+      geom_sf(
+        data = track_sf,
+        aes(
+          color = ssvid)
+      )
+    vessel_track_colorscale <-
+      scale_color_manual("",
+                         values = "#76ADAD",
+                         labels = 'Vessel Track'
+      )
+  } else {
+    vessel_track_geom <-
+      geom_sf(data = track_sf,
+              aes(
+                color = get(color_by),
+                group = grouping_by
+              )
+      )
+    vessel_track_colorscale <-
+      scale_color_manual("",
+                         breaks = c('0', '1'),
+                         values = c(
+                           "#76ADAD",
+                           "#E34D4E",
+                           'grey85'
+                         ),
+                         labels = c(
+                           "Steaming",
+                           "Fishing")
+                         )
+  }
+
+  map <- ggplot() +
+    geom_sf(
+      data = land_sf,
+      fill = land_fill,
+      color = land_color,
+      size = 0.2
+    ) +
+    vessel_track_geom +
+    vessel_track_colorscale +
+    coord_sf(
+      xlim = c(bounding_box$box_out[["xmin"]], bounding_box$box_out[["xmax"]]),
+      ylim = c(bounding_box$box_out[["ymin"]], bounding_box$box_out[["ymax"]]),
+      crs = bounding_box$out_crs
+    ) +
+    fishwatchr::theme_gfw_map(theme = theme) +
+    theme(
+      legend.position = "bottom",
+      legend.justification = "right",
+      # panel.border = element_rect(fill = NA, color = 'grey15'),
+      plot.margin = unit(c(3, 2, 1, 1), "cm"),
+      panel.grid.major = element_line(colour = grid_color,
+                                      size = 0.1)
+    ) +
+    labs(title = vessel_name,
+         subtitle = vessel_mmsi)
+
+  return(list(plot = map,
+              bbox = bounding_box))
+
+}
+
+
+
+
+plot_timeseries <- function(df, var, color_fishing, add_points = FALSE) {
+
+  #TODO: check how lon timeseries works at dateline
+  axis_lab <- c('Speed (knots)\n','Implied Speed (knots)\n','Depth (m)','Shore Distance (km)', 'Longitude', 'Latitude', 'Fishing Score')
+  names(axis_lab) <- c('speed_knots','implied_speed_knots', 'depth_m', 'distance_from_shore_km', 'lon','lat', 'nnet_score')
+
+  if (!(var %in% names(axis_lab))) {
+    stop(glue::glue('Unsupported variable selected. Supported variables are {paste0(names(axis_lab),collapse = ", ")}'), call. = FALSE)
+  }
+
+  # reverse scale for depth
+  if (var == 'depth_m') {
+    y_axis = scale_y_reverse(axis_lab[[{{var}}]])
+  } else {
+    y_axis = scale_y_continuous(axis_lab[[{{var}}]])
+  }
+
+
+  # identify gaps in timeseries (to color code later)
+  df <- df %>%
+    dplyr::mutate(next_time = dplyr::lead(timestamp),
+                  time_diff_hr = as.numeric(difftime(next_time,
+                                                     timestamp,
+                                                     tz = 'UTC',
+                                                     units = 'sec'))/3600,
+                  next_far = ifelse(time_diff_hr > 3, TRUE, FALSE),
+                  prev_far = ifelse(lead(next_far) == TRUE, TRUE, FALSE),
+                  nnet_score = as.character(ifelse(next_far == TRUE | prev_far == TRUE | is.na(nnet_score), 2 , nnet_score)))
+
+  if (color_fishing == FALSE) {
+
+    if (add_points == TRUE) {
+      point_geom <- geom_point(data = df,
+                               aes(x = timestamp,
+                                   y = eval(as.symbol({{var}})),
+                                   color = ssvid),
+                               size = 0.5
+      )
+    } else {
+      point_geom <- geom_blank()
+    }
+
+
+    line_geom <-
+      geom_path(
+        data = df,
+        aes(x = timestamp,
+            y = eval(as.symbol({{var}})),
+            color = ssvid)
+      )
+    line_colorscale <-
+      scale_color_manual("",
+                         values = "#76ADAD",
+                         labels = 'Vessel Track'
+      )
+
+    line_sizescale <- scale_size_manual('',
+                                     values = 0.5)
+
+  } else {
+
+    if (add_points == TRUE) {
+      point_geom <- geom_point(data = df,
+                               aes(timestamp,
+                                   eval(as.symbol({{var}})),
+                                   color = factor(nnet_score),
+                                   size = factor(nnet_score),
+                                   group  = ssvid),
+                               size = 0.5
+                               )
+    } else {
+      point_geom <- geom_blank()
+    }
+
+    line_geom <-
+      geom_path(data = df,
+                aes(timestamp,
+                    eval(as.symbol({{var}})),
+                    color = factor(nnet_score),
+                    size = factor(nnet_score),
+                    group  = ssvid))
+
+    line_colorscale <-
+      scale_color_manual('',
+                         breaks = c('0','1'),
+                         values = c('#76ADAD',
+                                    '#E34D4E',
+                                    'grey85'),
+                         labels = c('Steaming','Fishing'))
+
+    line_sizescale <- scale_size_manual('',
+                      breaks = c('0','1'),
+                      values = c(0.5,0.5,0.3),
+                      labels = c('Steaming','Fishing'))
+
+  }
+
+  ggplot() +
+    line_geom +
+    point_geom +
+    line_sizescale +
+    line_colorscale +
+    y_axis +
+    scale_x_datetime('\nDate') +
+    fishwatchr::theme_gfw() +
+    theme(legend.position = 'none',
+          legend.justification = 'right',
+          panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.background = element_rect(fill = '#ffffff'),
+          panel.border = element_rect(fill = NA, color = '#000000'),
+          plot.background = element_rect(fill = '#ffffff'),
+          axis.text.x = element_blank(),
+          axis.title.x = element_blank())
+}
+
+
+#' Utility function to stack timeseries plots
+#'
+#' @param line_plot_list list of timeseries plots
+#'
+#' @importFrom patchwork wrap_plots
+#' @importFrom ggplot2 theme
+#' @importFrom ggplot2 element_text
+#'
+#' @export
+
+
+stack_timeseries <- function(line_plot_list) {
+  num_line_plots <- length(line_plot_list)
+  # add x-axis label to final timeseries
+  line_plot_list[[num_line_plots]] <- line_plot_list[[num_line_plots]] +
+    theme(axis.text.x = element_text())
+
+  return(patchwork::wrap_plots(line_plot_list, ncol = 1))
+}
+
+
+#' Function to map vessel track and plot timeseries of associated track variables
+#'
+#' @param track_df dataframe of vessel track
+#' @param time_series_labels vector of track variables to plot as timeseries
+#' @param color_fishing boolean, color points according to neural net score.
+#' @param globe_location location of little globe for plot context
+#' @param globe_size float, relative size of little globe
+#' @param vessel_name string, optional vessel name for plot title
+#' @param map_res integer, resolution of the land vector used for map
+#' @param theme string, gfw map theme
+#' @param gfw_proj_name string, gfw projection name
+#' @return vessel track map with specified timeseries plots
+#'
+#' @importFrom patchwork plot_layout
+#' @importFrom rnaturalearth ne_countries
+#' @importFrom purrr map
+#' @import ggplot2
+#' @import dplyr
+#'
+#' @export
+#'
+#' @examples
+#' if (requireNamespace("rnaturalearthhires")) {
+#'  fishing_track_review(track_df = vessel_track,
+#'  color_fishing = TRUE, globe_location = 'lowerright', map_res = 10,
+#'  time_series_labels = c('speed_knots','depth_m','distance_from_shore_km'),
+#'  vessel_name = 'VELLINO')
+#'  }
+
+
+fishing_track_review <- function(track_df,
+                                 time_series_labels = c('speed_knots','depth_m','distance_from_shore_km'),
+                                 color_fishing = TRUE,
+                                 globe_location = 'upperright',
+                                 globe_size = 0.25,
+                                 vessel_name = 'Unspecified',
+                                 map_res = 10,
+                                 buffer = 0.5,
+                                 bounding_box_man = NA,
+                                 theme = 'light',
+                                 add_gridlines = FALSE,
+                                 gfw_proj_name = 'Equal Earth') {
+
+  # # if rnaturalearthhires is not installed then install it
+  # if (!require('rnaturalearthhires', character.only = TRUE)) {
+  # install.packages("rnaturalearthhires", repos = "http://packages.ropensci.org", type = "source")
+  # library("rnaturalearthhires", character.only = TRUE)
+  # }
+
+  # specify mapping variables
+  land_sf <- rnaturalearth::ne_countries(scale = 10, returnclass = "sf")
+
+  # label for map
+  vessel_mmsi = track_df %>%
+    dplyr::distinct(ssvid) %>%
+    dplyr::pull(ssvid)
+
+  # make sf track object
+  # vessel_track_sf <- make_track(track_df,
+  #                               color_by = nnet_score)
+
+  #generate regional map
+  region_map <- plot_vessel_track_fish(df = track_df,
+                                       color_fishing = color_fishing,
+                                       bounding_box_man = bounding_box_man,
+                                       map_res = map_res,
+                                       theme = theme,
+                                       buffer = buffer,
+                                       add_gridlines = add_gridlines,
+                                       gfw_proj_name = gfw_proj_name,
+                                       vessel_name = vessel_name)
+
+  # add points to to timeseries if its less than 24 hours
+  plot_points <- ifelse(as.numeric(difftime(time1 = max(track_df$timestamp, na.rm = TRUE),
+                             time2 = min(track_df$timestamp, na.rm = TRUE),
+                             tz = 'UTC',
+                             units = 'sec')) < 24 * 3600, TRUE, FALSE)
+
+
+
+
+  # if no timeseries variables are selected, generate map only
+  if (length(time_series_labels) < 1 | anyNA(time_series_labels)) {
+    stacked_timeseries <- ggplot2::geom_blank()
+
+    page_layout <- patchwork::plot_layout(ncol = 1)
+
+  } else {
+    # apply timeseries plot function
+    line_plot_list <- purrr::map(
+      .x = time_series_labels,
+      .f = plot_timeseries,
+      df = track_df,
+      color_fishing = color_fishing,
+      add_points = plot_points
+    )
+
+    stacked_timeseries <- stack_timeseries(line_plot_list)
+    num_components <- length(line_plot_list)
+    height_ratio_list <- list(0.2, 0.3, 0.35, 0.4, 0.5)
+
+    page_layout <- patchwork::plot_layout(ncol = 1,
+                                          heights = c(1 - height_ratio_list[[num_components]],
+                                                      height_ratio_list[[num_components]]))
+  }
+
+
+  # finally... arrange map/charts on page
+  fishwatchr::add_little_globe(region_map$plot,
+                               main_box = region_map$bbox,
+                               globe_rel_size = globe_size,
+                               globe_just = 'inside',
+                               globe_position = globe_location) +
+    stacked_timeseries +
+    page_layout
+
+}
+
+
+
+
+
+fishing_track_review(track_df = voi_atl,
+                     color_fishing = TRUE,
+                     globe_location = 'lowerright',
+                     time_series_labels = c('speed_knots','depth_m','distance_from_shore_km'),
+                     vessel_name = 'LU RONG YUAN YU 715')
+
+
+```
+

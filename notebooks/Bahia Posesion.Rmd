@@ -199,16 +199,30 @@ auth_bp <- fishwatchr::gfw_query(query = auth_bp_q,
                                  run_query = TRUE,
                                  con = con)$data
 
-ggplot(auth_bp) +
-  geom_bar(aes(x=authorisation))
-auth_bp %>% 
-  group_by(authorisation) %>% 
-  summarise(count=n()) %>%
-  plot_donut_chart(group_var = authorisation,
-                   value_var = count,
-                   donut_title = 'Authorisation level of fleet') +
-  labs(fill = 'Known Authorisations Sources')
-   
+
+# only look for auths for fishing vessels
+fishing <- filter(auth_bp, best_vessel_class %in% c('fishing', 'squid_jigger'))
+
+n_distinct(fishing$ssvid)
+
+sprfmo <- filter(fishing, registry %in% c('CHINASPRFMO', 'SPRFMO', 'SPRFMO2'))
+n_distinct(sprfmo$ssvid)
+
+fishing[!fishing$ssvid %in% sprfmo$ssvid,]
+
+filter(fishing, ssvid == '412549299')
+
+
+# ggplot(auth_bp) +
+#   geom_bar(aes(x=authorisation))
+# auth_bp %>% 
+#   group_by(authorisation) %>% 
+#   summarise(count=n()) %>%
+#   plot_donut_chart(group_var = authorisation,
+#                    value_var = count,
+#                    donut_title = 'Authorisation level of fleet') +
+#   labs(fill = 'Known Authorisations Sources')
+#    
 
 ```
 
