@@ -129,6 +129,11 @@ df <- filter(voi_ais, ssvid %in% voi)
 nrow(df)
 nrow(voi_ais)
 nrow(no_per_v_net_dash)
+
+data <- no_per_v_net_dash[!is.na(no_per_v_net_dash$lat),]
+str(data)
+
+table(data$shipname)
 ```
 
 Of the `r n_distinct(voi_ais$ssvid)` total MMSIs associated with the 150 prefix,  `r n_distinct(outside_chn_vessels$ssvid)` transmitted outside the Chinese EEZ. 

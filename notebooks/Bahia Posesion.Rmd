@@ -226,9 +226,221 @@ filter(fishing, ssvid == '412549299')
 
 ```
 
-Look for any high risk vessels
+Show vessel movements to Bahia Posesion and after leaving Bahia Posesion 
+```{r}
+move_q <- readr::read_file(file = here::here("queries", ".", "Bahia_Posesion_voi_squid_location_2021_2022.sql"))
+
+move <- fishwatchr::gfw_query(query = move_q,
+                                 run_query = TRUE,
+                                 con = con)$data
+
+# need a positions dataset with EEZ
+# something like this should do the job 
+eez_q <- readr::read_file(file = here::here("queries", ".", "Bahia_Posesion_vessels_eez_activity_2021_2022.sql"))
+
+eez_act <- fishwatchr::gfw_query(query = eez_q,
+                                 run_query = TRUE,
+                                 con = con)$data
+
+# group the EEZs into informative larger groups 
+# these might need to go into EEZ level still to show movement to and from Bahia Posesion 
+table(eez_act$eez)
+
+eez_act$eez_group <- eez_act$eez
+eez_act$eez_group[eez_act$eez %in% c('IND','SOM','YEM','LKA','MDV','OMN','DJI',
+                                     'IRN','PAK','ERI','ERI-DJI','SAU','ARE')] <- 'nw_indian_eezs'
+eez_act$eez_group[eez_act$eez %in% c('MUS', 'MDG', 'ZAF', 'MYS')] <- 'sw_indian_eezs'
+eez_act$eez_group[eez_act$eez %in% c('CHL','PER','ECU')] <- 'se_pacific_eezs'
+eez_act$eez_group[eez_act$eez %in% c('ARG','FLK','URY','BRA')] <- 'sw_atlantic_eezs'
+eez_act$eez_group[eez_act$eez %in% c('JPN','KOR','PHL','MNP','TWN','TWN-JPN-CHN',
+                                     'JPN-RUS','RUS','PRK','CHN','JPN-KOR')] <- 'nw_pacific_eezs'
+eez_act$eez_group[!eez_act$eez_group %in% c('nw_indian_eezs', 'se_pacific_eezs', 
+                                            'sw_atlantic_eezs', 'nw_pacific_eezs', 
+                                            'sw_indian_eezs')] <- 'Other'
+
+# use Global Squid paper pipes to make plotting dfs 
+
+# use aoi tagged data and identify when vessel moves between aois 'change aoi' 
+base_data <- move %>%
+  group_by(ssvid) %>%
+  arrange(date) %>%
+  mutate(change_aoi = c(0, cumsum(aoi[-1L] != aoi[-length(aoi)] |
+    as.numeric(difftime(date[-1L],
+      date[-length(date)],
+      units = "day"
+    )) > 14))) %>%
+  ungroup() %>%
+  dplyr::select(ssvid, aoi, date, change_aoi, everything()) %>%
+  ungroup()
+
+# find the start and end points of the change in aoi for segmenting 
+time_range_data <- move %>%
+  arrange(date) %>%
+  group_by(ssvid) %>%
+  mutate(change_aoi = c(0, cumsum(aoi[-1L] != aoi[-length(aoi)] |
+    as.numeric(difftime(date[-1L],
+      date[-length(date)],
+      units = "day"
+    )) > 14))) %>%
+  ungroup() %>%
+  dplyr::select(ssvid, aoi, date, change_aoi, everything()) %>%
+  group_by(ssvid, change_aoi) %>%
+  summarise(
+    first_date = min(date),
+    last_date = max(date)
+  ) %>%
+  ungroup()
+
+# join two datasets together 
+merged_data <- base_data %>%
+  inner_join(time_range_data %>%
+    dplyr::select(ssvid, first_date, last_date),
+  by = c("ssvid" = "ssvid", "date" = "first_date")
+  ) %>%
+  dplyr::select(ssvid, aoi, date, last_date, everything()) %>%
+  rename(first_date = date) %>%
+  # rbind(aoi_padding) %>%
+  mutate(aoi3 = factor(aoi, levels = c(
+    "nw_pacific","se_pacific", "sw_atlantic", "nw_indian",
+    "nw_pacific_eezs","se_pacific_eezs","sw_atlantic_eezs","nw_indian_eezs"
+  ))) %>%
+  filter(!is.na(ssvid))
+
+# need to establish the purpose of merged 3. Could make chunks comparable to merge 
+# using the activity data within EEZs and join them together 
+
+# don't need to find most common aoi as all vessels in same group. 
+# need to pull together 
+eez_activity <- eez_act %>%
+  arrange(date) %>%
+  mutate(change_aoi = c(0, cumsum(eez_group[-1L] != eez_group[-length(eez_group)]))) %>%
+  group_by(ssvid, eez_group, change_aoi) %>%
+  summarize(
+    min_date = min(date),
+    max_date = max(date),
+    duration = as.numeric(difftime(max_date, min_date, tz = "UTC", "secs")),
+    duration = ifelse(min_date == max_date, 86400, duration)
+  ) %>%
+  ungroup() %>%
+  arrange(min_date) %>%
+  group_by(ssvid, eez_group) %>%
+  summarize(total_days = sum(duration)) %>%
+  ungroup() %>%
+  group_by(ssvid) %>%
+  filter(total_days == max(total_days)) %>%
+  select(ssvid, most_common_aoi = eez_group) #%>%
+  # inner_join(merged_data,
+  #   by = c("ssvid" = "ssvid")
+  # )
+
+merged_data3 <- merged_data2 %>%
+  mutate(
+    ssvid_order = paste0(most_common_aoi, ssvid)
+  ) %>%
+  mutate(ssvid = factor(ssvid, levels = sort(voyages_ssvids)))
+
+segment_data <- merged_data3 %>%
+  mutate(
+    ssvid_order = paste0(most_common_aoi, ssvid)
+  ) %>%
+  group_by(ssvid, flag) %>%
+  summarize(
+    start = min(first_date, na.rm = TRUE),
+    end = max(last_date, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(ssvid = factor(ssvid, levels = sort(voyages_ssvids)))
+
+p <- ggplot() +
+  geom_segment(
+    data = segment_data,
+    aes(
+      x = start,
+      xend = end,
+      y = ssvid,
+      yend = ssvid
+    ),
+    color = "grey90"
+  ) +
+  geom_segment(
+    data = merged_data3,
+    aes(
+      x = first_date,
+      xend = last_date,
+      y = ssvid,
+      yend = ssvid,
+      # group = ssvid_order,
+      color = aoi3
+    ),
+    # color = 'grey20',
+    size = {{ line_width }},
+    alpha = 1
+  ) +
+  scale_color_manual("Fishing Region",
+    breaks = c(
+      "nw_pacific","se_pacific", "sw_atlantic", "nw_indian",
+      "nw_pacific_eezs","se_pacific_eezs","sw_atlantic_eezs","nw_indian_eezs"
+    ),
+    values = c("#5D69B1", "#58E8C6", "#99C945", "#CC3A8E",
+               "#465192", "#148f72","#587622","#822259"),
+    labels = c(
+      "NW Pacific Ocean High Seas", "SE Pacific Ocean High Seas",
+      "SW Atlantic Ocean High Seas", "NW Indian Ocean High Seas",
+      "NW Pacific Ocean EEZs", "SE Pacific Ocean EEZs",
+      "SW Atlantic Ocean EEZs", "NW Indian Ocean EEZs"
+    )
+  ) +
+  scale_x_date("",
+    date_minor_breaks = "months",
+    date_breaks = "year",
+    date_labels = "%Y",
+    limits = c(as.Date("2017-01-01"), as.Date("2020-12-31")),
+    expand = c(0, 0)
+  ) +
+  theme_gfw() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    axis.text.y = element_text(size = 1),
+    #axis.text.y = element_blank(),
+    panel.border = element_rect(color = "grey85", fill = NA),
+    panel.background = element_rect(fill = "#ffffff"),
+    plot.background = element_rect(fill = "#ffffff"),
+    strip.text.y.left = element_text(angle = 0),
+    panel.grid.minor.x = element_line(color = "grey85", linetype = "dotted"),
+    axis.title = element_blank(),
+    legend.position = "bottom",
+    plot.title = element_text(family = "Roboto-Regular")
+  ) 
+  p
+
+```
+
 
 ```{r}
+bp_enc_q <- readr::read_file(file = here::here("queries", ".", "Bahia_Posesion_encounters.sql"))
 
+# bp_enc <- fishwatchr::gfw_query(query = glue::glue(bp_enc_q,
+#                                               date_start = '2021-01-01',
+#                                               date_end = '2022-11-30'),
+bp_enc <- fishwatchr::gfw_query(query = bp_enc_q,
+                                 run_query = TRUE,
+                                 con = con)$data
+
+```
+```{r}
+
+bp_q <- c("
+SELECT 
+  *
+FROM `world-fishing-827.scratch_max.bahia_posesion_raw_ais`
+")
+
+
+bp_q <- fishwatchr::gfw_query(query = bp_q,
+                                 run_query = TRUE, 
+                                 con = con)$data
+
+write.csv(bp_q,'data/BP_raw_ais.csv')
 
 ```
