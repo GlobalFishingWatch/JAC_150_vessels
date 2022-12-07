@@ -14,10 +14,6 @@ CREATE TEMP FUNCTION END_DATE() AS (DATE('2022-11-30'));
 WITH
 
 
--- aoi AS (
---  SELECT
---   ST_GEOGFROMTEXT( "MULTIPOLYGON ((({bbox[[1,1]]} {bbox[[1,4]]}, {bbox[[1,2]]} {bbox[[1,4]]}, {bbox[[1,2]]} {bbox[[1,3]]}, {bbox[[1,1]]} {bbox[[1,3]]}, {bbox[[1,1]]} {bbox[[1,4]]})))"  ) AS polygon
--- ),
 aoi AS(
   SELECT
     ST_GEOGFROMTEXT( "MULTIPOLYGON ((( -69.40 -52.31, -69.13 -52.31, -69.13 -52.20, -69.40 -52.20, -69.40 -52.31 )))" ) AS polygon
