@@ -101,13 +101,15 @@ p1 <- ggplot(plot_df)+
   scale_x_discrete(breaks=1:12,labels=c('Jan', 'Feb', 'Mar', 'Apr', 'May', 
                       'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'))+
   scale_colour_manual(values=gfw_palette('primary')) +
-  labs(x='Month', y='Vessels', colour='Year')+
+  labs(x='Month', y='Number of Vessels', colour='Year')+
   theme_gfw() +
-  theme(axis.text=element_text(size=12), axis.title=element_text(size=14,face="bold"))
+  theme(axis.text=element_text(size=11), axis.title=element_text(size=13,face="bold"),
+        legend.title=element_text(size=12), legend.text=element_text(size=11))
 
+getwd()
 # run this direct in console 
 # setwd('./outputs/figures')
-ggsave('Bahia_posesion_vessels_2021_2022.png', plot=p1, device='png')
+ggsave('../outputs/figures/Bahia_posesion_vessels_2021_2022.png', plot=p1, device='png')
 
 ```
 Look at the length of stay in the area 
@@ -132,12 +134,13 @@ p2 <- ggplot(plot_df2)+
   geom_bar(aes(x=days, fill=factor(year)), 
            position = position_dodge2(preserve = 'single')) +
   scale_fill_manual(values=gfw_palette('primary')) +
-  labs(x='Days spent in Bahia Posesion', y='Frequency', fill='Year')+
+  labs(x='Days spent in Bahia Posesion', y='Number of vessels', fill='Year')+
   theme_gfw()+
-  theme(axis.text=element_text(size=11), axis.title=element_text(size=12,face="bold"))
+  theme(axis.text=element_text(size=11), axis.title=element_text(size=12,face="bold"),
+        legend.title=element_text(size=12), legend.text=element_text(size=11))
 
 # run this direct in console 
-ggsave('Bahia_posesion_length_of_stay_2021_2022.png',plot=p2, device='png')
+ggsave('../outputs/figures/Bahia_posesion_length_of_stay_2021_2022.png',plot=p2, device='png')
 
 ```
 
@@ -149,11 +152,36 @@ Look at what gears are getting used.
 # set NA to unknown
 bp_ves_num$best_vessel_class[is.na(bp_ves_num$best_vessel_class)] <- 'unknown'
 
+# look at class options 
+table(bp_ves_num$best_vessel_class)
+
+
+# corrections of data where spurious MMSIs are getting misclassified 
+bp_ves_num$best_vessel_class[bp_ves_num$ssvid=='210000000'] <- 'unknown'
+bp_ves_num$best_flag[bp_ves_num$ssvid=='210000000'] <- 'unknown'
+bp_ves_num$best_vessel_class[bp_ves_num$ssvid=='499999999'] <- 'unknown'
+bp_ves_num$best_flag[bp_ves_num$ssvid=='499999999'] <- 'unknown'
+
+
+# make a plot vessel class 
+bp_ves_num$plot_vessel_class <- bp_ves_num$best_vessel_class
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='cargo_or_reefer'] <- 'Cargo or Reefer'
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='fishing'] <- 'Fishing'
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='gear'] <- 'Gear'
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='non_fishing'] <- 'Non Fishing'
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='passenger'] <- 'Passenger'
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='pole_and_line'] <- 'Pole and Line'
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='squid_jigger'] <- 'Squid Jigger'
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='supply_vessel'] <- 'Supply Vessel'
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='tanker'] <- 'Tanker'
+bp_ves_num$plot_vessel_class[bp_ves_num$plot_vessel_class=='unknown'] <- 'Unknown'
+
+
 p2 <- ggplot(bp_ves_num)+
-  geom_bar(aes(x=best_vessel_class, fill=factor(year)), 
+  geom_bar(aes(x=plot_vessel_class, fill=factor(year)), 
            position = position_dodge2(preserve = 'single')) +
   scale_fill_manual(values=gfw_palette('primary')) +
-  labs(x='Vessel Type', y='Vessels', fill='Year')+
+  labs(x='Vessel Type', y='Number of Vessels', fill='Year')+
   theme_gfw()+
   # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), 
@@ -161,7 +189,7 @@ p2 <- ggplot(bp_ves_num)+
         legend.title=element_text(size=12), legend.text=element_text(size=11)) 
 
 # run this direct in console 
-ggsave('Bahia_posesion_vessel_type_2021_2022.png', device='png')
+ggsave('../outputs/figures/Bahia_posesion_vessel_type_2021_2022.png', device='png')
 
 ```
 Look at what flags the vessels are flying. 
@@ -170,13 +198,22 @@ Look at what flags the vessels are flying.
 # plot of the gears 
 
 # set NA to unknown
-bp_ves_num$best_flag[is.na(bp_ves_num$best_flag)] <- 'unknown'
+bp_ves_num$best_flag[is.na(bp_ves_num$best_flag)] <- 'Unknown'
+bp_ves_num$full_flag <- bp_ves_num$best_flag
+table(bp_ves_num$full_flag)
+
+bp_ves_num$full_flag[bp_ves_num$full_flag=='CHL'] <- 'Chile'
+bp_ves_num$full_flag[bp_ves_num$full_flag=='CHN'] <- 'China'
+bp_ves_num$full_flag[bp_ves_num$full_flag=='IMN'] <- 'Isle of Man'
+bp_ves_num$full_flag[bp_ves_num$full_flag=='LBR'] <- 'Liberia'
+bp_ves_num$full_flag[bp_ves_num$full_flag=='MHL'] <- 'Marshall Islands'
+bp_ves_num$full_flag[bp_ves_num$full_flag=='unknown'] <- 'Unknown'
 
 # just keep ssvid, flag and vessel type 
-plot_df3 <- bp_ves_num[!duplicated(bp_ves_num[,c(1,4,5)]),c(1,4,5)]
+plot_df3 <- bp_ves_num[!duplicated(bp_ves_num[,c(1,6,7)]),c(1,6,7)]
 
 p3 <- ggplot(plot_df3)+
-  geom_bar(aes(x=best_vessel_class, fill=factor(best_flag)), 
+  geom_bar(aes(x=plot_vessel_class, fill=factor(full_flag)), 
            position = position_dodge2(preserve = 'single')) +
   scale_fill_manual(values=gfw_palette('chart')) +
   labs(x='Vessel Type', y='Vessels', fill='Flag State')+
@@ -187,7 +224,7 @@ p3 <- ggplot(plot_df3)+
         legend.title=element_text(size=12), legend.text=element_text(size=11)) 
 
 # run this direct in console 
-ggsave('Bahia_posesion_vessel_type_flag_2021_2022.png', device='png')
+ggsave('../outputs/figures/Bahia_posesion_vessel_type_flag_2021_2022.png', device='png')
 ```
 
 Look at the vessels authorisations
@@ -200,29 +237,53 @@ auth_bp <- fishwatchr::gfw_query(query = auth_bp_q,
                                  con = con)$data
 
 
-# only look for auths for fishing vessels
-fishing <- filter(auth_bp, best_vessel_class %in% c('fishing', 'squid_jigger'))
+auth_bp$sprfmo <- ifelse(auth_bp$registry %in% c('CHINASPRFMO', 'SPRFMO', 'SPRFMO2'), TRUE, FALSE)
 
-n_distinct(fishing$ssvid)
+working_df <- auth_bp %>% filter(!best_vessel_class %in% c('carfo_reefer', 'non_fishing', 'passenger', 'supply_vessel', 'tanker')) %>%
+                        group_by(ssvid) %>% 
+                            summarise(
+                                flag = first(best_flag), 
+                                vessel_class = first(best_vessel_class), 
+                                sprfmo = any(sprfmo))
 
-sprfmo <- filter(fishing, registry %in% c('CHINASPRFMO', 'SPRFMO', 'SPRFMO2'))
-n_distinct(sprfmo$ssvid)
+# look at vessels not in sprfmo
+working_df %>% filter(!sprfmo)
 
-fishing[!fishing$ssvid %in% sprfmo$ssvid,]
+# drop out non fishing vessels 
+working_df <- working_df %>% filter(!ssvid %in% c('949403626', '725003591', '725000317', '636020482'))
 
-filter(fishing, ssvid == '412549299')
-
-
-# ggplot(auth_bp) +
-#   geom_bar(aes(x=authorisation))
-# auth_bp %>% 
-#   group_by(authorisation) %>% 
-#   summarise(count=n()) %>%
-#   plot_donut_chart(group_var = authorisation,
-#                    value_var = count,
-#                    donut_title = 'Authorisation level of fleet') +
-#   labs(fill = 'Known Authorisations Sources')
-#    
+# table(working_df$vessel_class)
+# 
+# # working_df <- bp[,c(1,5,6)] %>% filter(!duplicated(ssvid))
+# # n_distinct(working_df$ssvid)
+# 
+# table(working_df$vessel_name)
+# 
+# filter(working_df, is.na(best_vessel_class)) 
+# 
+# # only look for auths for fishing vessels
+# fishing <- filter(auth_bp, best_vessel_class %in% c('fishing', 'squid_jigger'))
+# 
+# n_distinct(fishing$ssvid)
+# 
+# sprfmo <- filter(fishing, registry %in% c('CHINASPRFMO', 'SPRFMO', 'SPRFMO2'))
+# n_distinct(sprfmo$ssvid)
+# 
+# fishing[!fishing$ssvid %in% sprfmo$ssvid,]
+# 
+# filter(fishing, ssvid == '412549299')
+# 
+# 
+# # ggplot(auth_bp) +
+# #   geom_bar(aes(x=authorisation))
+# # auth_bp %>% 
+# #   group_by(authorisation) %>% 
+# #   summarise(count=n()) %>%
+# #   plot_donut_chart(group_var = authorisation,
+# #                    value_var = count,
+# #                    donut_title = 'Authorisation level of fleet') +
+# #   labs(fill = 'Known Authorisations Sources')
+# #    
 
 ```
 
@@ -575,10 +636,424 @@ FROM `world-fishing-827.scratch_max.bahia_posesion_raw_ais`
 ")
 
 
-bp_q <- fishwatchr::gfw_query(query = bp_q,
+bp_ais <- fishwatchr::gfw_query(query = bp_q,
                                  run_query = TRUE, 
                                  con = con)$data
 
+
+ggplot(bp_ais) + geom_boxplot(aes(x=speed))
+
+
 write.csv(bp_q,'data/BP_raw_ais.csv')
 
+```
+
+
+```{r, include=FALSE, warning=FALSE}
+# try dockering back end function components to make a bespoke plot 
+
+# plot time series component to show the vessels speed through time  
+plot_df <- voi_atl %>% filter(between(as.Date(timestamp),as.Date('2022-01-18'),
+                                                 as.Date('2022-01-24'))) 
+
+# make the time series data in the correct format
+ts_plot_df <- plot_df %>%
+  dplyr::mutate(next_time = dplyr::lead(timestamp),
+                time_diff_hr = as.numeric(difftime(next_time,
+                                                   timestamp,
+                                                   tz = 'UTC',
+                                                   units = 'sec'))/3600,
+                next_far = ifelse(time_diff_hr > 3, TRUE, FALSE),
+                prev_far = ifelse(lead(next_far) == TRUE, TRUE, FALSE),
+                nnet_score = as.character(ifelse(next_far == TRUE | prev_far == TRUE | 
+                                                   is.na(nnet_score), 2 , nnet_score)),
+                slow_speed = ifelse(speed_knots<5, TRUE, FALSE))
+
+# make the line plot coloured by speed
+line_geom <-
+  geom_path(data = ts_plot_df,
+            aes(x= timestamp,
+                #eval(as.symbol(speed_knots)),
+                y= speed_knots,
+                color = factor(slow_speed),
+                size = factor(slow_speed),
+                group  = ssvid))
+# set colours 
+line_colorscale <-
+  scale_color_manual('',
+                     breaks = c(FALSE,TRUE),
+                     values = c('#76ADAD',
+                                '#E34D4E',
+                                'grey85'),
+                     # labels = NULL)
+                     labels = c('>5 knots','< 5 knots'))
+# set size 
+line_sizescale <- scale_size_manual('',
+                  breaks = c(TRUE,FALSE),
+                  values = c(0.5,0.5,0.3),
+                  # labels = NULL)
+                  labels = c('>5 knots','< 5 knots'))
+
+# time series plot of speed
+time_series_plot <- ggplot() +
+  line_geom +
+  # point_geom +
+  line_sizescale +
+  line_colorscale +
+  #y_axis +
+  scale_x_datetime('\nDate') +
+  fishwatchr::theme_gfw() +
+  theme(
+        legend.position = 'none',
+        legend.justification = 'right',
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.background = element_rect(fill = '#ffffff'),
+        panel.border = element_rect(fill = NA, color = '#000000'),
+        plot.background = element_rect(fill = '#ffffff'))+
+        # axis.text.x = element_blank(),
+        # axis.title.x = element_blank()) +
+  labs(y='Speed (knots)')
+
+# make land object at default scale of  10 
+land_sf <- rnaturalearth::ne_countries(scale = 10,
+                                       returnclass = "sf")
+
+# manual bounding box bounds set to +/- buf 
+buf <- 0.1
+bounding_box <- transform_box(xlim = c(min(ts_plot_df$lon) - buf,
+                                               max(ts_plot_df$lon) + buf),
+                                      ylim = c(min(ts_plot_df$lat) - buf,
+                                               max(ts_plot_df$lat) + buf),
+                                      output_crs = gfw_projections('Equal Earth')$proj)
+
+# make a track object colored by speed 
+track_sf <- make_track(ts_plot_df,
+                       color_by = 'slow_speed')
+
+# pull out vessel mmsi 
+vessel_mmsi <- track_sf %>%
+    sf::st_drop_geometry(.) %>%
+    dplyr::distinct(ssvid) %>%
+    dplyr::pull(ssvid)
+
+# set land to light theme colours 
+land_fill = fishwatchr::gfw_palettes$map_country_light[1]
+land_color = fishwatchr::gfw_palettes$map_country_light[2]
+
+# set grid colour 
+grid_color = 'grey85'
+
+# set vessel track geom based on speed
+vessel_track_geom <-
+  geom_sf(data = track_sf,
+          aes(
+            color = slow_speed,
+            group = ssvid
+          )
+      )
+
+# set geom color scale to speed too. 
+vessel_track_colorscale <-
+  scale_color_manual("",
+                     breaks = c(FALSE, TRUE),
+                     values = c(
+                       "#76ADAD",
+                       "#E34D4E",
+                       'grey85'
+                     ),
+                     labels = c(
+                       "> 5 knots",
+                       "< 5 knots")
+                     )
+
+vessel_name <- 'LU RONG YUAN YU 715'
+
+map <- ggplot() +
+  geom_sf(
+    data = land_sf,
+    fill = land_fill,
+    color = land_color,
+    size = 0.2
+  ) +
+  vessel_track_geom +
+  vessel_track_colorscale +
+    geom_gfw_eez(colour='black', lty=2,lwd=1.2, theme ='light', proj = "+proj=eqearth +datum=WGS84 +wktext") +
+  coord_sf(
+    xlim = c(bounding_box$box_out[["xmin"]], bounding_box$box_out[["xmax"]]),
+    ylim = c(bounding_box$box_out[["ymin"]], bounding_box$box_out[["ymax"]]),
+    crs = bounding_box$out_crs
+  ) +
+  fishwatchr::theme_gfw_map(theme = 'light') +
+  labs(title = vessel_name,
+       subtitle = vessel_mmsi, 
+       fill = 'Speed') +
+    theme(
+    # legend.position = c(1.7,0.2),
+    legend.position = 'bottom',
+    # legend.position = 'none',
+    legend.justification = "right",
+    # panel.border = element_rect(fill = NA, color = 'grey15'),
+    plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
+    panel.grid.major = element_line(colour = grid_color,
+                                    size = 0.1), 
+    plot.title=element_text(size=10),
+    plot.subtitle=element_text(size=9)
+  ) 
+
+# stacked_timeseries <- stack_timeseries(line_plot_list)
+# num_components <- length(line_plot_list)
+# height_ratio_list <- list(0.2, 0.3, 0.35, 0.4, 0.5)
+
+num_components <- 1
+page_layout <- patchwork::plot_layout(ncol = 1,
+                                      # widths = c(1.5,1),
+                                      heights = c(1 - 0.3, 0.3),
+                                      guides = 'auto')
+                                      # guides = 'keep')
+
+# arrange plots on page
+fishwatchr::add_little_globe(map,
+                             main_box = bounding_box,
+                             globe_rel_size = '0.25',
+                             globe_just = 'inside',
+                             globe_position = 'upperright') +
+    time_series_plot +
+    page_layout
+
+# map +
+#     time_series_plot +
+#     page_layout
+
+# setwd('./outputs/figures')
+ggsave('../outputs/figures/LU RONG YUAN YU 715_example_Atlantic.png', device='png')
+
+
+
+```
+
+Show example image of vessel activity in Bahia Posesion. 
+
+
+
+```{r, include=FALSE, warning=FALSE}
+voi_q <- c("
+           SELECT 
+              *
+            -- FROM `world-fishing-827.pipe_production_v20201001.messages_segmented_20221111`
+            -- FROM `world-fishing-827.pipe_production_v20201001.messages_scored_20221111`
+            -- FROM `pipe_ais_sources_v20201001.normalized_orbcomm_*`
+            FROM `pipe_ais_sources_v20201001.normalized_spire_*`
+            WHERE   
+            ssvid = '{voi}' AND 
+            DATE(timestamp) BETWEEN DATE('{start_date}') AND DATE('{end_date}')
+           ")
+
+voi_ais_segs <- fishwatchr::gfw_query(query = glue::glue(voi_q,
+                                               voi = '412440777', 
+                                               start_date = '2021-05-05',
+                                               end_date = '2021-05-30'),
+                                 run_query = TRUE,
+                                 con = con)$data
+nrow(voi_ais_segs)
+voi_ais_segs <- voi_ais_segs %>% filter(!is.na(lon), !is.na(lat)) %>% arrange(timestamp)
+nrow(voi_ais_segs)
+
+```
+
+```{r, include=FALSE, warning=FALSE}
+# use bahia posesion ais as starting point for aoi 
+
+voi <- filter(bp_ais, ssvid == 412440777)
+min(voi$timestamp)
+max(voi$timestamp)
+
+
+# make the time series data in the correct format
+ts_plot_df <- voi %>%
+  dplyr::mutate(next_time = dplyr::lead(timestamp),
+                time_diff_hr = as.numeric(difftime(next_time,
+                                                   timestamp,
+                                                   tz = 'UTC',
+                                                   units = 'sec'))/3600,
+                next_far = ifelse(time_diff_hr > 3, TRUE, FALSE),
+                prev_far = ifelse(lead(next_far) == TRUE, TRUE, FALSE),
+                slow_speed = ifelse(speed<5, TRUE, FALSE))
+
+# manual bounding box bounds set to +/- buf 
+buf <- 0.1
+bounding_box <- transform_box(xlim = c(min(ts_plot_df$lon) - buf,
+                                               max(ts_plot_df$lon) + buf),
+                                      ylim = c(min(ts_plot_df$lat) - buf,
+                                               max(ts_plot_df$lat) + buf),
+                                      output_crs = gfw_projections('Equal Earth')$proj)
+
+# use longer time series raw data to show larger movement into and from BP 
+
+ts_plot_df <- dplyr::select(voi_ais_segs, ssvid, timestamp, lon, lat, speed) %>%
+  dplyr::mutate(next_time = dplyr::lead(timestamp),
+                time_diff_hr = as.numeric(difftime(next_time,
+                                                   timestamp,
+                                                   tz = 'UTC',
+                                                   units = 'sec'))/3600,
+                next_far = ifelse(time_diff_hr > 3, TRUE, FALSE),
+                prev_far = ifelse(lead(next_far) == TRUE, TRUE, FALSE),
+                slow_speed = ifelse(speed<5, TRUE, FALSE))
+
+
+
+# make the line plot coloured by speed
+line_geom <-
+  geom_path(data = ts_plot_df,
+            aes(x= timestamp,
+                #eval(as.symbol(speed_knots)),
+                y= speed,
+                color = factor(slow_speed),
+                size = factor(slow_speed),
+                group  = ssvid))
+# set colours 
+line_colorscale <-
+  scale_color_manual('',
+                     breaks = c(FALSE,TRUE),
+                     values = c('#76ADAD',
+                                '#E34D4E',
+                                'grey85'),
+                     # labels = NULL)
+                     labels = c('>5 knots','< 5 knots'))
+# set size 
+line_sizescale <- scale_size_manual('',
+                  breaks = c(TRUE,FALSE),
+                  values = c(0.5,0.5,0.3),
+                  # labels = NULL)
+                  labels = c('>5 knots','< 5 knots'))
+
+# time series plot of speed
+time_series_plot <- ggplot() +
+  line_geom +
+  # point_geom +
+  line_sizescale +
+  line_colorscale +
+  #y_axis +
+  scale_x_datetime('\nDate') +
+  fishwatchr::theme_gfw() +
+  theme(
+        legend.position = 'none',
+        legend.justification = 'right',
+        panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.background = element_rect(fill = '#ffffff'),
+        panel.border = element_rect(fill = NA, color = '#000000'),
+        plot.background = element_rect(fill = '#ffffff'))+
+        # axis.text.x = element_blank(),
+        # axis.title.x = element_blank()) +
+  labs(y='Speed (knots)')
+
+# make land object at default scale of  10 
+land_sf <- rnaturalearth::ne_countries(scale = 10,
+                                       returnclass = "sf")
+
+
+# make a track object colored by speed 
+track_sf <- make_track(ts_plot_df,
+                       color_by = 'slow_speed')
+
+# pull out vessel mmsi 
+vessel_mmsi <- track_sf %>%
+    sf::st_drop_geometry(.) %>%
+    dplyr::distinct(ssvid) %>%
+    dplyr::pull(ssvid)
+
+# set land to light theme colours 
+land_fill = fishwatchr::gfw_palettes$map_country_light[1]
+land_color = fishwatchr::gfw_palettes$map_country_light[2]
+
+# set grid colour 
+grid_color = 'grey85'
+
+# set vessel track geom based on speed
+vessel_track_geom <-
+  geom_sf(data = track_sf,
+          aes(
+            color = slow_speed,
+            group = ssvid
+          )
+      )
+
+# set geom color scale to speed too. 
+vessel_track_colorscale <-
+  scale_color_manual("",
+                     breaks = c(FALSE, TRUE),
+                     values = c(
+                       "#76ADAD",
+                       "#E34D4E",
+                       'grey85'
+                     ),
+                     labels = c(
+                       "> 5 knots",
+                       "< 5 knots")
+                     )
+
+vessel_name <- 'FU YUAN YU 7628'
+
+map <- ggplot() +
+  geom_sf(
+    data = land_sf,
+    fill = land_fill,
+    color = land_color,
+    size = 0.2
+  ) +
+  vessel_track_geom +
+  vessel_track_colorscale +
+    geom_gfw_eez(colour='black', lty=2,lwd=1.2, theme ='light', proj = "+proj=eqearth +datum=WGS84 +wktext") +
+  coord_sf(
+    xlim = c(bounding_box$box_out[["xmin"]], bounding_box$box_out[["xmax"]]),
+    ylim = c(bounding_box$box_out[["ymin"]], bounding_box$box_out[["ymax"]]),
+    crs = bounding_box$out_crs
+  ) +
+  geom_rect(aes(xmin = -69.40,
+                xmax = -69.13,
+                ymin = -52.31,
+                ymax = -52.20), color = "red", fill = NA)  +
+  fishwatchr::theme_gfw_map(theme = 'light') +
+  labs(title = vessel_name,
+       subtitle = vessel_mmsi, 
+       fill = 'Speed') +
+    theme(
+    # legend.position = c(1.7,0.2),
+    legend.position = 'bottom',
+    # legend.position = 'none',
+    legend.justification = "right",
+    # panel.border = element_rect(fill = NA, color = 'grey15'),
+    plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
+    panel.grid.major = element_line(colour = grid_color,
+                                    size = 0.1), 
+    plot.title=element_text(size=10),
+    plot.subtitle=element_text(size=9)
+  ) 
+
+# stacked_timeseries <- stack_timeseries(line_plot_list)
+# num_components <- length(line_plot_list)
+# height_ratio_list <- list(0.2, 0.3, 0.35, 0.4, 0.5)
+
+num_components <- 1
+page_layout <- patchwork::plot_layout(ncol = 1,
+                                      # widths = c(1.5,1),
+                                      heights = c(1 - 0.3, 0.3),
+                                      guides = 'auto')
+                                      # guides = 'keep')
+
+# arrange plots on page
+fishwatchr::add_little_globe(map,
+                             main_box = bounding_box,
+                             globe_rel_size = '0.25',
+                             globe_just = 'inside',
+                             globe_position = 'upperright')+ 
+    time_series_plot +
+    page_layout
+# 
+# getwd()
+
+# setwd('./outputs/figures')
+ggsave('../outputs/figures/FU YUAN YU 7628_example_BahiaPosesion_withTS.png', device='png')
+```
 ```

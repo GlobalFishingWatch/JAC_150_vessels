@@ -42,82 +42,17 @@ auth AS (
     -- IMPORTANT: change below to most up to date table
     `world-fishing-827.gfw_research.vi_ssvid_byyear_v20221001`,
     UNNEST(registry_info.registries_listed) AS registry
-  JOIN
-    voi USING (ssvid)
   WHERE
     year IN (2021, 2022)
 ),
 
-
-sprfmo AS(
-  SELECT
-    DISTINCT ssvid
-  FROM
-    auth
-  WHERE
-    registry IN ('CHINASPRFMO', 'SPRFMO', 'SPRFMO2')
-),
-
-
-chn_dwf AS(
-  SELECT
-    DISTINCT ssvid
-  FROM
-    auth
-  WHERE
-    registry IN ('CHINAFISHING') AND
-    ssvid NOT IN (SELECT ssvid FROM sprfmo)
-),
-
-imo AS(
-  SELECT
-    DISTINCT ssvid
-  FROM
-    auth
-  WHERE
-    registry IN ('IMO', 'IMO3')AND
-    ssvid NOT IN (SELECT ssvid FROM chn_dwf)
-),
-
-
-IUU AS(
-  SELECT
-    DISTINCT ssvid
-  FROM
-    auth
-  WHERE
-    registry IN ('IUU')
-),
-
--- grouped_auth AS (
---   SELECT
---     DISTINCT ssvid,
---     CASE
---       WHEN ssvid IN (SELECT ssvid FROM chn_dwf) AND ssvid IN (SELECT ssvid FROM squid_rfmo) AND ssvid IN (SELECT ssvid FROM imo) THEN 'chn_sprfmo_imo'
---       WHEN (ssvid IN (SELECT ssvid FROM chn_dwf) AND ssvid IN (SELECT ssvid FROM squid_rfmo)) THEN 'chn_sprfmo'
---       WHEN (ssvid IN (SELECT ssvid FROM chn_dwf) AND ssvid IN (SELECT ssvid FROM imo)) THEN 'chn_imo'
---       WHEN (ssvid IN (SELECT ssvid FROM imo) AND ssvid IN (SELECT ssvid FROM squid_rfmo)) THEN 'sprfmo_imo'
---       WHEN ssvid IN (SELECT ssvid FROM chn_dwf) OR
---            ssvid IN (SELECT ssvid FROM chn_dwf) OR
---            ssvid IN (SELECT ssvid FROM imo) THEN 'one'
---       ELSE 'none'
---     END AS authorisation
---   FROM
---     auth
--- )
-
-
-grouped_auth AS (
-  SELECT
-    DISTINCT ssvid,
-    CASE
-      WHEN ssvid IN (SELECT ssvid FROM sprfmo) THEN 'SPRFMO'
-      WHEN ssvid IN (SELECT ssvid FROM chn_dwf)  THEN 'CHN_DWF'
-      WHEN ssvid IN (SELECT ssvid FROM imo)  THEN 'IMO'
-      ELSE 'none'
-    END AS authorisation
-  FROM
-    auth
+all_ves AS (
+   SELECT
+      *
+   FROM
+      voi
+   LEFT JOIN auth USING (ssvid)
 )
 
-SELECT * FROM auth
+
+SELECT * FROM all_ves
