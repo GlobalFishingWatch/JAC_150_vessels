@@ -101,20 +101,33 @@ outside_chn_vessels <- fishwatchr::gfw_query(query = outside_chn,
                                  run_query = TRUE,
                                  con = con)$data
 
+n_distinct(outside_chn_vessels)
+
 # restrict down to genuine VOI
 outside_AIS <- filter(voi_ais, ssvid %in% c(outside_chn_vessels$ssvid))
 
 # get rid of percentage - indicator of gear markers 
-non_per <- filter(outside_AIS, !stringr::str_detect(shipname, '\\%'))
+per <- filter(outside_AIS, stringr::str_detect(shipname, '\\%'))
+head(table(per$shipname))
 
 # get rid of ending in v - another indicator of gear markers
-non_per_v <- filter(non_per, !stringr::str_detect(shipname, 'v$|V$'))
+per_v <- filter(non_per, stringr::str_detect(shipname, 'v$|V$'))
+table(per_v$shipname)
 
 # get rid of ending in NET another indicator of gear markers
-no_per_v_net <- filter(non_per_v, !stringr::str_detect(shipname, 'NET'))
+per_v_net <- filter(non_per_v, stringr::str_detect(shipname, 'NET'))
+table(per_v_net$shipname)
 
 # get rid of - in the name as another indicator of gear markers
-no_per_v_net_dash <- filter(no_per_v_net, !stringr::str_detect(shipname, '-'))
+per_v_net_dash <- filter(no_per_v_net, stringr::str_detect(shipname, '-'))
+table(per_v_net_dash$shipname)
+
+# remove vessels
+no_per_v_net_dash <- outside_AIS %>% filter(!ssvid %in% unique(c(
+    per$ssvid, 
+    per_v$ssvid,
+    per_v_net$ssvid, 
+    per_v_net_dash$ssvid)))
 
 # write out data to visaulise
 write.csv(no_per_v_net_dash, './data/non_gear_outside_CHN.csv', row.names = F)
@@ -126,14 +139,16 @@ n_distinct(no_per_v_net_dash$ssvid)
 voi <- unique(no_per_v_net_dash$ssvid)
 df <- filter(voi_ais, ssvid %in% voi)
 
-nrow(df)
-nrow(voi_ais)
-nrow(no_per_v_net_dash)
-
 data <- no_per_v_net_dash[!is.na(no_per_v_net_dash$lat),]
-str(data)
 
-table(data$shipname)
+```
+
+
+```{r, echo=FALSE}
+
+more_then10 <- data %>% group_by(ssvid) %>% summarise(n=n()) %>% filter(n>10)
+n_distinct(more_then10$ssvid)
+
 ```
 
 Of the `r n_distinct(voi_ais$ssvid)` total MMSIs associated with the 150 prefix,  `r n_distinct(outside_chn_vessels$ssvid)` transmitted outside the Chinese EEZ. 
@@ -147,23 +162,9 @@ This filtering removed `r n_distinct(outside_AIS$ssvid) - n_distinct(no_per_v_ne
 MMSIs from our fleet of interest. Resulting in `r n_distinct(no_per_v_net_dash$ssvid)` remaining 
 in our vessels of interest. 
 
-# How many vessels have links to China through Name  
+Further filtering was conducted on vessels with less than 10 AIS transmissions between 2021 and 2022 which removed `r n_distinct(outside_AIS$ssvid) - n_distinct(more_then10$ssvid)` vessel from the analysis fleet leaving `n_distinct(more_then10$ssvid)` vessels. 
 
-```{r, echo=FALSE}
-table(no_per_v_net_dash$shipname)
-
-names_mmsi <- non_gear %>% group_by(shipname) %>% summarise(vesels = n_distinct(ssvid), 
-                                                           ssvids = str_c(unique(ssvid), collapse=", "))
-
-n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'LU'))$shipname)
-
-voi150400453 <- filter(no_per_v_net_dash, ssvid == 150400453)
-fuyuanyu_715 <- filter(voi150400453, shipname == 'FUYUANYU 715')
-
-write.csv(voi150400453, '150400453.csv', row.names = F)
-write.csv(fuyuanyu_715, 'fuyuanyu_715.csv', row.names = F)
-
-```
+# Patterns in remaining vessel names  
 
 The vessel of interest have five distinct vessel name groupings within them
 1. names starting with FU of which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'FU'))$shipname)` distinct names with FU YUAN YU ... the most common pattern
