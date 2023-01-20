@@ -85,42 +85,41 @@ First question is establish how many vessels have the 150 MMSI prefix in total.
 ```{r, echo=FALSE}
 q_voi_ais <- c("SELECT * FROM `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2021_20Oct2022`")
 
-voi_ais <- fishwatchr::gfw_query(query = q_voi_ais,
+all_150_ais <- fishwatchr::gfw_query(query = q_voi_ais,
                                  run_query = TRUE, 
                                  con = con)$data
-n_distinct(voi_ais$ssvid)
+n_distinct(all_150_ais$ssvid)
+
 ```
 
 This is querying the raw AIS data and there is `r n_distinct(voi_ais$ssvid)` vessels in total. 
 
 
 ```{r, echo=FALSE}
+# outside china gets all 150 vessels AIS outside of China 
 outside_chn <- readr::read_file(file = here::here("queries", ".", "outside_CHN.sql"))
-
-outside_chn_vessels <- fishwatchr::gfw_query(query = outside_chn,
+outside_chn_ais<- fishwatchr::gfw_query(query = outside_chn,
                                  run_query = TRUE,
                                  con = con)$data
 
-n_distinct(outside_chn_vessels)
+write.csv(outside_chn_ais, '../data/step1_outside_CHN.csv', row.names = F)
+
+n_distinct(outside_chn_ais$ssvid)
 
 # restrict down to genuine VOI
-outside_AIS <- filter(voi_ais, ssvid %in% c(outside_chn_vessels$ssvid))
+outside_AIS <- filter(voi_ais, ssvid %in% c(outside_chn_ais$ssvid))
 
 # get rid of percentage - indicator of gear markers 
 per <- filter(outside_AIS, stringr::str_detect(shipname, '\\%'))
-head(table(per$shipname))
 
 # get rid of ending in v - another indicator of gear markers
-per_v <- filter(non_per, stringr::str_detect(shipname, 'v$|V$'))
-table(per_v$shipname)
+per_v <- filter(outside_AIS, stringr::str_detect(shipname, 'v$|V$'))
 
 # get rid of ending in NET another indicator of gear markers
-per_v_net <- filter(non_per_v, stringr::str_detect(shipname, 'NET'))
-table(per_v_net$shipname)
+per_v_net <- filter(outside_AIS, stringr::str_detect(shipname, 'NET'))
 
 # get rid of - in the name as another indicator of gear markers
-per_v_net_dash <- filter(no_per_v_net, stringr::str_detect(shipname, '-'))
-table(per_v_net_dash$shipname)
+per_v_net_dash <- filter(outside_AIS, stringr::str_detect(shipname, '-'))
 
 # remove vessels
 no_per_v_net_dash <- outside_AIS %>% filter(!ssvid %in% unique(c(
@@ -130,25 +129,96 @@ no_per_v_net_dash <- outside_AIS %>% filter(!ssvid %in% unique(c(
     per_v_net_dash$ssvid)))
 
 # write out data to visaulise
-write.csv(no_per_v_net_dash, './data/non_gear_outside_CHN.csv', row.names = F)
+write.csv(no_per_v_net_dash, '../data/non_gear_outside_CHN.csv', row.names = F)
+
+# write out the discarded datasets to see if any aligns with areas of interest 
+write.csv(per, '../data/150voi_percentage_in_name.csv', row.names = F)
+write.csv(per_v, '../data/150voi_voltage_in_name.csv', row.names = F)
+write.csv(per_v_net, '../data/150voi_net_in_name.csv', row.names = F)
+write.csv(per_v_net_dash, '../data/150voi_dash_in_name.csv', row.names = F)
 
 n_distinct(outside_AIS$ssvid)
 n_distinct(no_per_v_net_dash$ssvid)
 
-# need to be careful not to remove AIS which is 
-voi <- unique(no_per_v_net_dash$ssvid)
-df <- filter(voi_ais, ssvid %in% voi)
+data <- no_per_v_net_dash[!is.na(no_per_v_net_dash$lat) & !is.na(no_per_v_net_dash$lon) ,]
+n_distinct(data$ssvid)
 
-data <- no_per_v_net_dash[!is.na(no_per_v_net_dash$lat),]
+# still missing where a big chunk data drops out 
+# check the opposite of the gear query 
+
+likely_gear <- outside_AIS %>% filter(ssvid %in% unique(c(
+    per$ssvid, 
+    per_v$ssvid,
+    per_v_net$ssvid, 
+    per_v_net_dash$ssvid)))
+write.csv(likely_gear, '../data/likely_gear.csv', row.names = F)
+
+
 
 ```
 
 
 ```{r, echo=FALSE}
 
-more_then10 <- data %>% group_by(ssvid) %>% summarise(n=n()) %>% filter(n>10)
-n_distinct(more_then10$ssvid)
+# still lots of CHN transmissions. Drop them with a lat/lon subset to make sure we dont still have
+# exclusively chinese vessels 
+# add index to data 
+voi <- data %>% mutate(id = seq(1,nrow(data),1))
+chn <- voi %>% filter(between(lon, 107, 124) & between(lat, 18, 41))
+n_distinct(chn$ssvid)
+n_distinct(voi$ssvid)
 
+# remove data points in China. 
+look <- voi %>% filter(!id %in% chn$id)
+n_distinct(look$ssvid)
+write.csv(look, '../data/outside_chn_v2.csv', row.names = F)
+
+# run more then 10 transmission query to try remove vessels with bitflips out of CHN 
+more_then10 <- look %>% group_by(ssvid) %>% summarise(n=n()) %>% filter(n>10)
+outside_chn_more_then10 <- look %>% filter(ssvid %in% (more_then10$ssvid))
+n_distinct(outside_chn_more_then10$ssvid)
+
+# write it out to visaulise
+write.csv(outside_chn_more_then10, '../data/active_outside_chn.csv', row.names = F)
+
+
+# # look at data dropped by the more then 10 criteria 
+# removed <- data %>% filter(!ssvid %in% (more_then10$ssvid))
+# write.csv(removed, '../data/removed.csv', row.names = F)
+# check_ids <-  removed %>% group_by(ssvid) %>% summarise(trans=n()) %>% filter(trans>10)
+# 
+# check <- filter(removed,  ssvid %in% check_ids$ssvid)
+# write.csv(check, '../data/check.csv', row.names = F)
+# # working as expected
+
+
+# filter the whole dataset to only retain the active outside of china vessels (with their china transmissions)
+focal <- all_150_ais %>% filter(ssvid %in% unique(outside_chn_more_then10$ssvid)) 
+focal <- focal[!is.na(focal$lat) & !is.na(focal$lon) ,]
+# focal <- voi_ais %>% filter(ssvid %in% unique(active_outside_chn$ssvid)) 
+write.csv(focal, '../data/all_ais_150_active.csv', row.names = F)
+
+# voi %>% group_by(ssvid) %>% arrange(ssvid, timestamp) %>% mutate(time = difftime(timestamp, lag(timestamp)))
+
+# aggregate the data to rasterfy on map, need fields lat, lon, timestamp, ssvid, and a value to work with 
+map_df <- focal %>% mutate(lat_bin = round(lat, 1), lon_bin = round(lon, 1)) %>% 
+  group_by(ssvid, timestamp, lat_bin, lon_bin) %>%
+    summarise(positions = n(), 
+              vessels = n_distinct(ssvid))
+
+map_df %>%
+  bigrquery::bq_table_upload(x = bigrquery::bq_table(project = "world-fishing-827",
+                                                   dataset = "scratch_max",
+                                                   table = "150_voi_from_R"),
+                            values = .)
+# GFW map query
+# SELECT
+# CAST(ssvid AS STRING) AS id,
+# timestamp,
+# lat_bin AS lat,
+# lon_bin AS lon,
+# CAST(positions AS FLOAT64)AS value,
+# FROM `world-fishing-827.scratch_max.150_voi_from_R`
 ```
 
 Of the `r n_distinct(voi_ais$ssvid)` total MMSIs associated with the 150 prefix,  `r n_distinct(outside_chn_vessels$ssvid)` transmitted outside the Chinese EEZ. 
@@ -165,6 +235,29 @@ in our vessels of interest.
 Further filtering was conducted on vessels with less than 10 AIS transmissions between 2021 and 2022 which removed `r n_distinct(outside_AIS$ssvid) - n_distinct(more_then10$ssvid)` vessel from the analysis fleet leaving `n_distinct(more_then10$ssvid)` vessels. 
 
 # Patterns in remaining vessel names  
+
+```{r, echo=FALSE}
+names_df <- focal %>% group_by(ssvid) %>% summarise(names = n_distinct(shipname), 
+                                        callsigns = n_distinct(shipname)) #%>% group_by(names) %>% 
+    #summarise(freq = n())
+
+ggplot(names_df) +
+  geom_histogram(aes(x=names)) +
+  labs(x='Number of Names', y='Number of Vessels')+
+  theme_gfw()+
+  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), 
+        axis.text=element_text(size=11), axis.title=element_text(size=12,face="bold"), 
+        legend.title=element_text(size=12), legend.text=element_text(size=11)) 
+
+table(focal$shipname)
+
+# zhe <- filter(focal, stringr::str_detect(shipname, '^ZHESHENG'))
+# write.csv(zhe, '../data/zhe.csv', row.names = F)
+# w150 <- filter(focal, shipname== 'W150100801')
+# write.csv(w150, '../data/w150.csv', row.names = F)
+
+```
 
 The vessel of interest have five distinct vessel name groupings within them
 1. names starting with FU of which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'FU'))$shipname)` distinct names with FU YUAN YU ... the most common pattern

@@ -32,7 +32,14 @@ CHN_EEZ_land AS (
 
 -- identify vessels with transmissions outside CHN EEZ
   SELECT
-    DISTINCT ssvid
+    ssvid,
+    timestamp,
+    type,
+    shipname,
+    callsign,
+    lat,
+    lon,
+    speed,
   FROM
     all_vessels, CHN_EEZ_land
   WHERE NOT
