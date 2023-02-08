@@ -2,7 +2,7 @@ WITH all_vessels AS (
   SELECT
     *
   FROM
-    `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2021_20Oct2022`
+    `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2020_2022`
   WHERE
     lon BETWEEN -180 AND 180 AND
     lat BETWEEN -90 AND 90),

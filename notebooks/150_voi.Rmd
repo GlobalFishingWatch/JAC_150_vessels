@@ -83,7 +83,7 @@ Calling the table directly as it is saved due to being a large query
 First question is establish how many vessels have the 150 MMSI prefix in total. 
 
 ```{r, echo=FALSE}
-q_voi_ais <- c("SELECT * FROM `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2021_20Oct2022`")
+q_voi_ais <- c("SELECT * FROM `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2020_2022`")
 
 all_150_ais <- fishwatchr::gfw_query(query = q_voi_ais,
                                  run_query = TRUE, 
@@ -102,12 +102,12 @@ outside_chn_ais<- fishwatchr::gfw_query(query = outside_chn,
                                  run_query = TRUE,
                                  con = con)$data
 
-write.csv(outside_chn_ais, '../data/step1_outside_CHN.csv', row.names = F)
+# write.csv(outside_chn_ais, '../data/step1_outside_CHN.csv', row.names = F)
 
 n_distinct(outside_chn_ais$ssvid)
 
 # restrict down to genuine VOI
-outside_AIS <- filter(voi_ais, ssvid %in% c(outside_chn_ais$ssvid))
+outside_AIS <- filter(all_150_ais, ssvid %in% c(outside_chn_ais$ssvid))
 
 # get rid of percentage - indicator of gear markers 
 per <- filter(outside_AIS, stringr::str_detect(shipname, '\\%'))
@@ -129,13 +129,13 @@ no_per_v_net_dash <- outside_AIS %>% filter(!ssvid %in% unique(c(
     per_v_net_dash$ssvid)))
 
 # write out data to visaulise
-write.csv(no_per_v_net_dash, '../data/non_gear_outside_CHN.csv', row.names = F)
+# write.csv(no_per_v_net_dash, '../data/non_gear_outside_CHN.csv', row.names = F)
 
 # write out the discarded datasets to see if any aligns with areas of interest 
-write.csv(per, '../data/150voi_percentage_in_name.csv', row.names = F)
-write.csv(per_v, '../data/150voi_voltage_in_name.csv', row.names = F)
-write.csv(per_v_net, '../data/150voi_net_in_name.csv', row.names = F)
-write.csv(per_v_net_dash, '../data/150voi_dash_in_name.csv', row.names = F)
+# write.csv(per, '../data/150voi_percentage_in_name.csv', row.names = F)
+# write.csv(per_v, '../data/150voi_voltage_in_name.csv', row.names = F)
+# write.csv(per_v_net, '../data/150voi_net_in_name.csv', row.names = F)
+# write.csv(per_v_net_dash, '../data/150voi_dash_in_name.csv', row.names = F)
 
 n_distinct(outside_AIS$ssvid)
 n_distinct(no_per_v_net_dash$ssvid)
@@ -151,16 +151,34 @@ likely_gear <- outside_AIS %>% filter(ssvid %in% unique(c(
     per_v$ssvid,
     per_v_net$ssvid, 
     per_v_net_dash$ssvid)))
-write.csv(likely_gear, '../data/likely_gear.csv', row.names = F)
-
-
-
+# write.csv(likely_gear, '../data/likely_gear.csv', row.names = F)
 ```
 
+<!-- ```{r, echo=FALSE} -->
+<!-- q_voi_segs <- c("SELECT * FROM `world-fishing-827.scratch_max.AIS_segs_150_mmsi_prefix_2021_20Oct2022`") -->
+
+<!-- # these segments should exclude bitflipped data  -->
+<!-- segs_150 <- fishwatchr::gfw_query(query = q_voi_segs, -->
+<!--                                  run_query = TRUE,  -->
+<!--                                  con = con)$data -->
+
+<!-- not_gear_segs <- filter(segs_150, !ssvid %in% c(likely_gear$ssvid)) -->
+
+<!-- # look at vessel numbers in each df  -->
+<!-- n_distinct(not_gear_segs$ssvid) -->
+<!-- n_distinct(segs_150$ssvid) -->
+<!-- n_distinct(data$ssvid) -->
+
+
+<!-- # write out non-gear segments to see if the data of interest is still there. -->
+<!-- not_gear_segs %>% write_csv(here::here("data", ".", paste0("150_non_gear_segs_",str_replace_all(Sys.Date(), '-','_'),".csv"))) -->
+<!-- # segments remove too much data -->
+
+<!-- ``` -->
 
 ```{r, echo=FALSE}
 
-# still lots of CHN transmissions. Drop them with a lat/lon subset to make sure we dont still have
+# still lots of CHN transmissions. Drop them with a lat/lon subset to make sure we don't still have
 # exclusively chinese vessels 
 # add index to data 
 voi <- data %>% mutate(id = seq(1,nrow(data),1))
@@ -171,15 +189,43 @@ n_distinct(voi$ssvid)
 # remove data points in China. 
 look <- voi %>% filter(!id %in% chn$id)
 n_distinct(look$ssvid)
-write.csv(look, '../data/outside_chn_v2.csv', row.names = F)
+# write.csv(look, '../data/outside_chn_v2.csv', row.names = F)
 
 # run more then 10 transmission query to try remove vessels with bitflips out of CHN 
 more_then10 <- look %>% group_by(ssvid) %>% summarise(n=n()) %>% filter(n>10)
 outside_chn_more_then10 <- look %>% filter(ssvid %in% (more_then10$ssvid))
 n_distinct(outside_chn_more_then10$ssvid)
 
+
+more_then5 <- look %>% group_by(ssvid) %>% summarise(n=n()) %>% filter(n>5)
+outside_chn_more_then5 <- look %>% filter(ssvid %in% (more_then5$ssvid))
+n_distinct(outside_chn_more_then5$ssvid)
+
+# outside_chn_more_then10 %>% write.csv(here::here("data", ".", paste0("active_outside_chn_10_",str_replace_all(Sys.Date(), '-','_'),".csv")))
+# outside_chn_more_then5 %>% write.csv(here::here("data", ".", paste0("active_outside_chn_5_",str_replace_all(Sys.Date(), '-','_'),".csv")))
+
+# look %>% filter(!ssvid %in% (outside_chn_more_then10$ssvid))%>% write.csv(here::here("data", ".", paste0("dropped_outside_chn_10_",str_replace_all(Sys.Date(), '-','_'),".csv")))
+# look %>% filter(!ssvid %in% (outside_chn_more_then5$ssvid)) %>% write.csv(here::here("data", ".", paste0("dropped_outside_chn_5_",str_replace_all(Sys.Date(), '-','_'),".csv")))
+# 
+
+drp_5 <- look %>% filter(!ssvid %in% (outside_chn_more_then5$ssvid))
+View(drp_5 %>% group_by(ssvid) %>% summarise(n=n()))
+# pattern with 15040 being in our fleet of interest. 
+
+
+more_then10_int <- look %>% group_by(ssvid) %>% summarise(n=n()) %>% filter(n>10 | str_detect(ssvid, "^15040"))
+
+working_df <- filter(data, ssvid %in% more_then10_int$ssvid)
+working_df %>% write.csv(here::here("data", ".", paste0("150_voi_working_df",str_replace_all(Sys.Date(), '-','_'),".csv")))
+
+
+table(filter(data, str_detect(ssvid, "^15040"))$shipname)
+table(working_df$shipname)
+
+
+
 # write it out to visaulise
-write.csv(outside_chn_more_then10, '../data/active_outside_chn.csv', row.names = F)
+# write.csv(outside_chn_more_then10, '../data/active_outside_chn.csv', row.names = F)
 
 
 # # look at data dropped by the more then 10 criteria 
@@ -196,21 +242,21 @@ write.csv(outside_chn_more_then10, '../data/active_outside_chn.csv', row.names =
 focal <- all_150_ais %>% filter(ssvid %in% unique(outside_chn_more_then10$ssvid)) 
 focal <- focal[!is.na(focal$lat) & !is.na(focal$lon) ,]
 # focal <- voi_ais %>% filter(ssvid %in% unique(active_outside_chn$ssvid)) 
-write.csv(focal, '../data/all_ais_150_active.csv', row.names = F)
+# write.csv(focal, '../data/all_ais_150_active.csv', row.names = F)
 
 # voi %>% group_by(ssvid) %>% arrange(ssvid, timestamp) %>% mutate(time = difftime(timestamp, lag(timestamp)))
 
 # aggregate the data to rasterfy on map, need fields lat, lon, timestamp, ssvid, and a value to work with 
-map_df <- focal %>% mutate(lat_bin = round(lat, 1), lon_bin = round(lon, 1)) %>% 
-  group_by(ssvid, timestamp, lat_bin, lon_bin) %>%
-    summarise(positions = n(), 
-              vessels = n_distinct(ssvid))
-
-map_df %>%
-  bigrquery::bq_table_upload(x = bigrquery::bq_table(project = "world-fishing-827",
-                                                   dataset = "scratch_max",
-                                                   table = "150_voi_from_R"),
-                            values = .)
+# map_df <- focal %>% mutate(lat_bin = round(lat, 1), lon_bin = round(lon, 1)) %>% 
+#   group_by(ssvid, timestamp, lat_bin, lon_bin) %>%
+#     summarise(positions = n(), 
+#               vessels = n_distinct(ssvid))
+# 
+# map_df %>%
+#   bigrquery::bq_table_upload(x = bigrquery::bq_table(project = "world-fishing-827",
+#                                                    dataset = "scratch_max",
+#                                                    table = "150_voi_from_R"),
+#                             values = .)
 # GFW map query
 # SELECT
 # CAST(ssvid AS STRING) AS id,
@@ -237,6 +283,43 @@ Further filtering was conducted on vessels with less than 10 AIS transmissions b
 # Patterns in remaining vessel names  
 
 ```{r, echo=FALSE}
+ssvids <- working_df %>% filter(str_detect(shipname, '20'))
+View(working_df %>% filter(ssvid %in% unique(ssvids$ssvid)) %>% group_by(ssvid) %>% summarise(names=paste(unique(shipname), collapse=" ")))
+
+
+paste0("('",paste(unique(working_df$ssvid), collapse="','"), "')")
+
+voi_identity_q <- c("
+  SELECT 
+    ssvid, 
+    ais_identity.n_shipname_mostcommon.value AS best_shipname_AIS,
+    ais_identity.n_callsign_mostcommon.value AS best_callsign_AIS,
+    ais_identity.n_imo_mostcommon.value AS best_imo_AIS,
+    registry_info.best_known_shipname, 
+    registry_info.best_known_callsign,
+    registry_info.best_known_imo,
+    registry_info.best_known_flag,
+    registry_info.best_known_vessel_class,
+    best.best_flag, 
+    best.best_vessel_class, 
+    on_fishing_list_known, 
+    on_fishing_list_nn
+  FROM `gfw_research.vi_ssvid_v20230101`
+  WHERE   
+  ssvid IN {voi}
+  ")
+
+voi_identity_segs <- fishwatchr::gfw_query(query = glue::glue(voi_identity_q,
+                                               voi = paste0("('",paste(unique(working_df$ssvid), collapse="','"), "')")),
+                                 run_query = TRUE,
+                                 con = con)$data
+
+View(voi_identity_segs)
+
+```
+
+
+```{r, echo=FALSE}
 names_df <- focal %>% group_by(ssvid) %>% summarise(names = n_distinct(shipname), 
                                         callsigns = n_distinct(shipname)) #%>% group_by(names) %>% 
     #summarise(freq = n())
@@ -256,6 +339,8 @@ table(focal$shipname)
 # write.csv(zhe, '../data/zhe.csv', row.names = F)
 # w150 <- filter(focal, shipname== 'W150100801')
 # write.csv(w150, '../data/w150.csv', row.names = F)
+
+
 
 ```
 
