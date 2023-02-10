@@ -222,7 +222,11 @@ working_df %>% write.csv(here::here("data", ".", paste0("150_voi_working_df",str
 table(filter(data, str_detect(ssvid, "^15040"))$shipname)
 table(working_df$shipname)
 
-
+match_ves <- working_df %>% group_by(ssvid) %>% 
+  summarise(positions = n(), names = paste(unique(shipname), collapse=" ")) %>%
+    arrange(desc(positions)) %>% filter(positions>500)
+              
+ match_ves$ssvid     
 
 # write it out to visaulise
 # write.csv(outside_chn_more_then10, '../data/active_outside_chn.csv', row.names = F)
@@ -309,12 +313,18 @@ voi_identity_q <- c("
   ssvid IN {voi}
   ")
 
-voi_identity_segs <- fishwatchr::gfw_query(query = glue::glue(voi_identity_q,
+voi_identity <- fishwatchr::gfw_query(query = glue::glue(voi_identity_q,
                                                voi = paste0("('",paste(unique(working_df$ssvid), collapse="','"), "')")),
                                  run_query = TRUE,
                                  con = con)$data
 
-View(voi_identity_segs)
+View(voi_identity)
+
+# explore individual mmsis
+table(filter(working_df, ssvid == '412331282')$shipname)
+table(filter(working_df, str_detect(shipname, 'SHUN HANG 6'))$ssvid)
+table(filter(working_df, str_detect(shipname, 'SHUN'))$shipname)
+
 
 ```
 
