@@ -201,9 +201,11 @@ more_then5 <- look %>% group_by(ssvid) %>% summarise(n=n()) %>% filter(n>5)
 outside_chn_more_then5 <- look %>% filter(ssvid %in% (more_then5$ssvid))
 n_distinct(outside_chn_more_then5$ssvid)
 
+
+# writing out data. hashed as dfs are large for
+######
 # outside_chn_more_then10 %>% write.csv(here::here("data", ".", paste0("active_outside_chn_10_",str_replace_all(Sys.Date(), '-','_'),".csv")))
 # outside_chn_more_then5 %>% write.csv(here::here("data", ".", paste0("active_outside_chn_5_",str_replace_all(Sys.Date(), '-','_'),".csv")))
-
 # look %>% filter(!ssvid %in% (outside_chn_more_then10$ssvid))%>% write.csv(here::here("data", ".", paste0("dropped_outside_chn_10_",str_replace_all(Sys.Date(), '-','_'),".csv")))
 # look %>% filter(!ssvid %in% (outside_chn_more_then5$ssvid)) %>% write.csv(here::here("data", ".", paste0("dropped_outside_chn_5_",str_replace_all(Sys.Date(), '-','_'),".csv")))
 # 
@@ -216,18 +218,27 @@ View(drp_5 %>% group_by(ssvid) %>% summarise(n=n()))
 more_then10_int <- look %>% group_by(ssvid) %>% summarise(n=n()) %>% filter(n>10 | str_detect(ssvid, "^15040"))
 
 working_df <- filter(data, ssvid %in% more_then10_int$ssvid)
-working_df %>% write.csv(here::here("data", ".", paste0("150_voi_working_df",str_replace_all(Sys.Date(), '-','_'),".csv")))
+
+working_df$year  <- year(working_df$timestamp) 
+working_df$month  <- month(working_df$timestamp) 
+#working_df %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_",str_replace_all(Sys.Date(), '-','_'),".csv")))
+filter(working_df, year == '2020') %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_2020_",str_replace_all(Sys.Date(), '-','_'),".csv")))
+filter(working_df, year == '2021') %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_2021_",str_replace_all(Sys.Date(), '-','_'),".csv")))
+filter(working_df, year == '2022') %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_2022_",str_replace_all(Sys.Date(), '-','_'),".csv")))
 
 
 table(filter(data, str_detect(ssvid, "^15040"))$shipname)
 table(working_df$shipname)
 
-match_ves <- working_df %>% group_by(ssvid) %>% 
-  summarise(positions = n(), names = paste(unique(shipname), collapse=" ")) %>%
-    arrange(desc(positions)) %>% filter(positions>500)
+match_ves <- working_df %>% 
+    group_by(ssvid) %>% 
+      summarise(positions = n(), 
+                names = paste(unique(shipname), collapse="; "), 
+                first_timestamp = min(timestamp), 
+                last_timestamp = max(timestamp)) %>%
+        arrange(desc(positions))
               
- match_ves$ssvid     
-
+View(match_ves)
 # write it out to visaulise
 # write.csv(outside_chn_more_then10, '../data/active_outside_chn.csv', row.names = F)
 
@@ -269,6 +280,15 @@ focal <- focal[!is.na(focal$lat) & !is.na(focal$lon) ,]
 # lon_bin AS lon,
 # CAST(positions AS FLOAT64)AS value,
 # FROM `world-fishing-827.scratch_max.150_voi_from_R`
+```
+```{r, echo=FALSE}
+# Need to add class B element 
+
+match_ves <- working_df %>% group_by(ssvid) %>% 
+  summarise(positions = n(), names = paste(unique(shipname), collapse="; ")) %>%
+    arrange(desc(positions))
+
+write.csv(match_ves, "./data/150_vessels_identity.csv")
 ```
 
 Of the `r n_distinct(voi_ais$ssvid)` total MMSIs associated with the 150 prefix,  `r n_distinct(outside_chn_vessels$ssvid)` transmitted outside the Chinese EEZ. 
@@ -326,6 +346,24 @@ table(filter(working_df, str_detect(shipname, 'SHUN HANG 6'))$ssvid)
 table(filter(working_df, str_detect(shipname, 'SHUN'))$shipname)
 
 
+voi_gfw_names_q <- c("
+  SELECT 
+    ssvid, 
+    shipname.count AS frequency, 
+    shipname.value AS shipname
+  FROM `gfw_research.vi_ssvid_v20230101`
+  LEFT JOIN UNNEST(ais_identity.shipname) AS shipname
+  WHERE   
+  ssvid IN {voi}
+  ")
+
+voi_names <- fishwatchr::gfw_query(query = glue::glue(voi_gfw_names_q,
+                                               voi = paste0("('",paste(unique(working_df$ssvid), collapse="','"), "')")),
+                                 run_query = TRUE,
+                                 con = con)$data
+getwd()
+write.csv(voi_identity, "../data/150_voi_names_frequency.csv")
+  
 ```
 
 
