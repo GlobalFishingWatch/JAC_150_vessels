@@ -235,10 +235,14 @@ match_ves <- working_df %>%
       summarise(positions = n(), 
                 names = paste(unique(shipname), collapse="; "), 
                 first_timestamp = min(timestamp), 
-                last_timestamp = max(timestamp)) %>%
+                last_timestamp = max(timestamp), 
+                timespan = difftime(last_timestamp, first_timestamp, units="days")) %>%
         arrange(desc(positions))
               
 View(match_ves)
+
+match_ves %>% write.csv(here::here("data", ".", paste0("150_voi_usage_spire_",str_replace_all(Sys.Date(), '-','_'),".csv")))
+
 # write it out to visaulise
 # write.csv(outside_chn_more_then10, '../data/active_outside_chn.csv', row.names = F)
 
