@@ -383,6 +383,17 @@ Clear vessel names with some iterations in the dataset
 - SHUN HANG 5
 - SHUN HANG 6
 
+# Established voi list 
+```{r, echo=FALSE}
+# Read in agreed 225 voi with TMT 
+
+q_voi_est <- c("SELECT * FROM `world-fishing-827.scratch_max.150_voi_ssvid`")
+
+voi_est <- fishwatchr::gfw_query(query = q_voi_est,
+                                 run_query = TRUE, 
+                                 con = con)$data
+```
+
 ## Location
 
 # Location in space and time
@@ -448,6 +459,15 @@ outside_chn_ais<- fishwatchr::gfw_query(query = chn_ports,
                                  con = con)$data
 ```
 
+# AIS Name changes
+
+We want to evaluate when and where vessel of interest are changing there names. 
+
+```{r, echo=F}
+
+
+```
+
 
 # AIS message types
 
@@ -456,10 +476,5 @@ outside_chn_ais<- fishwatchr::gfw_query(query = chn_ports,
 
 ```
 
-# AIS Name changes
 
-```{r, echo=F}
-
-
-```
 
