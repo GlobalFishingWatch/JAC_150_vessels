@@ -464,6 +464,28 @@ outside_chn_ais<- fishwatchr::gfw_query(query = chn_ports,
 We want to evaluate when and where vessel of interest are changing there names. 
 
 ```{r, echo=F}
+ais_change_location_q <- readr::read_file(file = here::here("queries", ".", "ais_identity_changes_v1.sql"))
+name_change <- fishwatchr::gfw_query(query = ais_change_location_q,
+                                 run_query = TRUE,
+                                 con = con)$data
+
+# identify LU RONG YUAN YU 715 change points 
+# this name used on 13 MMSIs 
+lryy715 <- bind_rows(
+  # static 
+  name_change %>% filter(stringr::str_detect(static_name, '715$') |
+                       static_name  == 'LURONGYUANYU715' |
+                       static_name  == 'LURONGYUANYU 715'),
+  # prev 
+  name_change %>% filter(stringr::str_detect(next_name, '715$') |
+                       next_name == 'LURONGYUANYU715' |
+                       next_name == 'LURONGYUANYU 715')
+  )
+
+View(lryy715)
+# three names id through changes 
+
+# what about non name changing vessels 
 
 
 ```

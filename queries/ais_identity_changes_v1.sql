@@ -39,38 +39,51 @@ all_messages AS (
 -- add next row name to df to spot name changes
 all_messages2 AS (SELECT
   *,
-  LEAD(static_name) OVER(PARTITION BY ssvid ORDER BY timestamp) AS prev_name
+  LEAD(static_name) OVER(PARTITION BY ssvid ORDER BY timestamp) AS next_name
 FROM all_messages),
 
 -- pull out the static messages
 -- attribute latitude and longitude to these based on next non-null value
-static_messages AS (
+missing_static_positions AS (
   SELECT
     *,
     CASE
-      WHEN lat IS NULL THEN
+      WHEN
+        lat IS NOT NULL AND
+        type IN ('AIS.5', 'AIS.24', 'AIS.19')
+      THEN lat
+      WHEN
+        lat IS NULL AND
+        type IN ('AIS.5', 'AIS.24', 'AIS.19')
+      THEN
         FIRST_VALUE(lat IGNORE NULLS)
           OVER (
             PARTITION BY ssvid
             ORDER BY timestamp
             ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-        ELSE lat
-    END AS next_lat,
+        ELSE NULL
+    END AS static_lat,
     CASE
-      WHEN lon IS NULL THEN
+      WHEN
+        lat IS NOT NULL AND
+        type IN ('AIS.5', 'AIS.24', 'AIS.19')
+      THEN lon
+      WHEN
+        lon IS NULL AND
+        type IN ('AIS.5', 'AIS.24', 'AIS.19')
+      THEN
         FIRST_VALUE(lon IGNORE NULLS)
           OVER (
             PARTITION BY ssvid
             ORDER BY timestamp
             ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-        ELSE lon
-    END AS next_lon,
+        ELSE NULL
+    END AS static_lon,
   FROM all_messages2
-  WHERE
-    -- DATE(timestamp) BETWEEN minimum() AND maximum() AND
-    type IN ('AIS.5', 'AIS.24', 'AIS.19')
 )
 
--- identify rows with a change in names within the static message data.
-SELECT * FROM static_messages
-WHERE static_name != prev_name
+-- merge in positional information to rows with a change in names within the static message data.
+SELECT
+  *
+FROM missing_static_positions
+ORDER BY ssvid, timestamp
