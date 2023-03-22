@@ -482,14 +482,333 @@ lryy715 <- bind_rows(
                        next_name == 'LURONGYUANYU 715')
   )
 
-View(lryy715)
-# three names id through changes 
+# look aat number of different MMSIs
+table(lryy715$ssvid)
 
-# what about non name changing vessels 
+# check which names are there
+table(lryy715$static_name, lryy715$next_name)
+
+View(lryy715[1:1000,])
+
+# three names id through changes 
+lryy715 %>% group_by(ssvid) %>% summarise(
+  start =  min(timestamp), 
+  end = max(timestamp))
+
+# for 150400450 one position unrelated to other transmissions in the series   
+look_150400450 <- filter(name_change, ssvid == '150400450')
+ssvid_150400450 <- filter(name_change, ssvid == '150400450' & shipname == 'LURONGYUANYU 715')
+ssvid_150400450$group <- '150400450'
+
+# 150400460 transmission on FUYUANYU 715 so remove. 
+#look_150400460 <- filter(name_change, ssvid == '150400460')
+
+# for 15040046 transmissions over LURONGYUANYU 715
+look_150400465 <- filter(name_change, ssvid == '150400465')
+ssvid_150400465 <- filter(name_change, ssvid == '150400465' & between(as.Date(timestamp), as.Date('2022-12-20'), as.Date('2022-12-26')))
+ssvid_150400465$group <- '150400465'
+
+# for 150400467 transmissions over LURONGYUANYU 715 look to be one single position 
+look_150400467 <- filter(name_change, ssvid == '150400467')
+ssvid_150400467 <- filter(name_change, ssvid == '150400467' & shipname == 'LURONGYUANYU 715')
+ssvid_150400467$group <- '150400467'
+
+# for 150400471  transmissions over LURONGYUANYU 715 look to be one single position based on difference in time 
+look_150400471  <- filter(name_change, ssvid == '150400471')
+ssvid_150400471 <- filter(name_change, ssvid == '150400471' & shipname == 'LURONGYUANYU 715')
+ssvid_150400471$group <- '150400471'
+
+# for 150400476  transmissions over LURONGYUANYU 715 are isolated but could be related to the same vessel
+look_150400476  <- filter(name_change, ssvid == '150400476')
+ssvid_150400476 <- filter(name_change, ssvid == '150400476' & shipname == 'LURONGYUANYU 715')
+ssvid_150400476$group <- '150400476'
+
+ssvid_150400476_maybe <- filter(name_change, ssvid == '150400476' & between(as.Date(timestamp), as.Date('2022-01-06'), as.Date('2022-01-20')))
+
+# for 150400477  transmissions over FUYUANYU 715 are isolated but could be related to the same vessel
+#look_150400477  <- filter(name_change, ssvid == '150400477')
+
+#  only static is LU RONG YUAN YU 715  
+look_150400478  <- filter(name_change, ssvid == '150400478')
+ssvid_150400478 <-  filter(name_change, ssvid == '150400478' & between(as.Date(timestamp), as.Date('2021-06-30'), as.Date('2021-07-01')))
+ssvid_150400478$group <- '150400478'
+
+# for 150400480  transmissions over FUYUANYU 715 
+#look_150400480 <- filter(name_change, ssvid == '150400480')
+
+# 150400483 only static is LU RONG YUAN YU 715
+look_150400483  <- filter(name_change, ssvid == '150400483')
+ssvid_150400483  <-  filter(name_change, ssvid == '150400483' & between(as.Date(timestamp), as.Date('2022-07-30'), as.Date('2022-07-31')))
+ssvid_150400483$group <- '150400483'
+
+# 150400488 only static is LU RONG YUAN YU 715 - series of transmissions in December 2022 - what about before then
+look_150400488  <- filter(name_change, ssvid == '150400488')
+ssvid_150400488  <-  filter(name_change, ssvid == '150400488' & between(as.Date(timestamp), as.Date('2022-12-24'), as.Date('2022-12-25')))
+ssvid_150400488$group <- '150400488'
+
+# 150400499 only static is LU RONG YUAN YU 715 - most transmissions close in time but before static 
+look_150400499  <- filter(name_change, ssvid == '150400499')
+ssvid_150400499 <-  filter(name_change, ssvid == '150400499' & between(as.Date(timestamp), as.Date('2021-10-13'), as.Date('2021-10-16')))
+ssvid_150400499$group <- '150400499'
+
+# 150400502 only static is LU RONG YUAN YU 715 - one transmissions close in time but others quite seperate  
+look_150400502  <- filter(name_change, ssvid == '150400502')
+ssvid_150400502  <- filter(name_change, ssvid == '150400502' & between(as.Date(timestamp), as.Date('2021-10-11'), as.Date('2021-10-12')))
+ssvid_150400502$group <- '150400502'
+
+# bind together all the data  
+ssvid_150400453_g1 <- filter(name_change, ssvid == '150400453', 
+                            between(as.Date(timestamp), as.Date('2020-12-20'), as.Date('2020-12-29'))) 
+ssvid_150400453_g1$group <- '150400453-1'
+                            
+ssvid_150400453_g2 <- filter(name_change, ssvid == '150400453', 
+                            between(as.Date(timestamp), as.Date('2021-05-04'), as.Date('2021-07-02'))) 
+ssvid_150400453_g2$group <- '150400453-2'
+
+ssvid_150400453_g3 <- filter(name_change, ssvid == '150400453', 
+                            between(as.Date(timestamp), as.Date('2021-09-13'), as.Date('2021-11-30')))  
+ssvid_150400453_g3$group <- '150400453-3'
+
+ssvid_150400453_g4 <- filter(name_change, ssvid == '150400453', 
+                            between(as.Date(timestamp), as.Date('2022-07-25'), as.Date('2022-12-28')))
+ssvid_150400453_g4$group <- '150400453-4'
+
+
+lryy715_time <- bind_rows(ssvid_150400450, ssvid_150400465, ssvid_150400467, ssvid_150400471, 
+                          ssvid_150400476, ssvid_150400478, ssvid_150400483, ssvid_150400488, 
+                          ssvid_150400499, ssvid_150400502, ssvid_150400453_g1, ssvid_150400453_g2, 
+                          ssvid_150400453_g3, ssvid_150400453_g4)
+
+
+head(lryy715_time)
+
+lryy715_time %>% group_by(ssvid) %>% summarise(n=n())
+
+lryy715_time_lines <- filter(lryy715_time, !ssvid %in% c('150400450', '150400467','150400471','150400476'))
+lryy715_time_points <- filter(lryy715_time, ssvid %in% c('150400450', '150400467','150400471','150400476'))
+
 
 
 ```
 
+Maps 
+
+```{r, echo=F}
+
+new_center <- 200
+
+recenter_lryy715 <- lryy715_time_lines %>%
+  filter(!is.na(lat)) %>%
+  arrange(timestamp) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) %>%
+  group_by(group) %>%
+  summarize() %>%
+  sf::st_cast(., "LINESTRING") %>%
+  fishwatchr::recenter_sf(., center = new_center)
+
+recenter_lryy715_points <- lryy715_time_points %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) %>%
+  fishwatchr::recenter_sf(., center = new_center)
+
+
+ggplot() +
+  geom_gfw_outline(center = new_center, 
+                   theme = "dark") +
+  geom_gfw_land(center = new_center) +
+  geom_sf(
+    data = recenter_lryy715,
+      aes(color = group) #, 
+    #color = fishwatchr::gfw_palettes$secondary[2]
+  ) +
+  #geom_gfw_eez() +
+  geom_sf(
+  data = recenter_lryy715_points,
+  aes(color = group),
+  size = 1.5
+  ) +
+  # scale_colour_manual(values = gfw_palettes$tracks) +
+  theme_gfw_map(theme = "light") +
+  theme(legend.position="right", ) +
+  labs(colour = 'MMSI')
+
+ggsave(here::here("outputs", "figures", "LRYY715_mmsi_map.png"), width = 10, height = 7)
+```
+
+```{r, echo=F}
+time_plot_df <- lryy715_time %>% group_by(group) %>% summarise(
+  first_trans = min(timestamp), 
+  last_trans = max(timestamp),
+  n=n()
+)
+
+time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
+
+ggplot() +
+  geom_segment(
+    data = time_plot_df,
+    aes(
+      x = first_trans,
+      xend = last_trans,
+      # y = ssvid,
+      # yend = ssvid,      
+      y = group,
+      yend = group,
+      colour = group
+    ),
+    size = 2
+  ) + 
+  geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
+  labs(x= 'date', y='MMSI' )+
+  theme_classic() +
+  theme(legend.position="none")
+
+
+ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10, height = 7)
+  
+```
+
+```{r, echo=F}
+df <- read.csv(here::here("data", ".", "150400453.csv"))
+
+df$shipname[df$shipname=='HAHHHING 3'] <- 'HAI HANG 3'
+df$shipname[df$shipname=='HAIHANG3'] <- 'HAI HANG 3'
+df$shipname[df$shipname=='LURONGYUANYU715'] <- 'LURONGYUANYU 715'
+table(df$shipname)
+
+df$timestamp <- as.POSIXct(df$timestamp, format='%d/%m/%Y %H:%M')
+time_plot_df2 <- df %>% group_by(shipname) %>% summarise(
+  first_trans = min(timestamp), 
+  last_trans = max(timestamp),
+  n=n()
+)
+
+# note need to break the data into groups by continuous transmission on MMSI 
+
+```
+
+```{r, echo=F}
+
+new_center <- 200
+
+recenter_lryy715 <- df %>%
+  filter(!is.na(lat)) %>%
+  arrange(timestamp) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) %>%
+  group_by(shipname) %>%
+  summarize() %>%
+  sf::st_cast(., "LINESTRING") %>%
+  fishwatchr::recenter_sf(., center = new_center)
+
+ggplot() +
+  geom_gfw_outline(center = new_center, 
+                   theme = "dark") +
+  geom_gfw_land(center = new_center) +
+  geom_sf(
+    data = recenter_lryy715,
+      aes(color = shipname) #, 
+    #color = fishwatchr::gfw_palettes$secondary[2]
+  ) +
+  #geom_gfw_eez() +
+  # scale_colour_manual(values = gfw_palettes$tracks) +
+  theme_gfw_map(theme = "light") +
+  theme(legend.position="right", ) +
+  labs(colour = 'Vessel Name')
+
+ggsave(here::here("outputs", "figures", "LRYY715_name_map.png"), width = 10, height = 7)
+
+```
+```{r, echo=F}
+# time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
+
+ggplot() +
+  geom_segment(
+    data = time_plot_df2,
+    aes(
+      x = first_trans,
+      xend = last_trans,
+      # y = ssvid,
+      # yend = ssvid,      
+      y = shipname,
+      yend = shipname,
+      colour = shipname
+    ),
+    size = 2
+  ) + 
+  # geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
+  labs(x= 'Date', y='Vessel Name' )+
+  #   scale_x_date("",
+  #   date_minor_breaks = "months",
+  #   date_breaks = "year",
+  #   date_labels = "%Y",
+  #   limits = c(as.Date("2020-01-01"), as.Date("2022-12-31")),
+  #   expand = c(0, 0)
+  # )
+  theme_classic() +
+  theme(legend.position="none")
+
+
+ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10, height = 7)
+  
+```
+
+
+
+```{r, echo=F}
+
+g1 <- filter(lryy715_time_lines, group == '150400453_3')
+
+g1_et <- g1 %>% mutate(time_diff = difftime( timestamp, lag(timestamp), units = c("days")))
+max(g1_et$time_diff, na.rm=t)
+min(g1_et$time_diff, na.rm=t)
+
+test <- filter(lryy715_time_lines, ssvid == '150400453', 
+                            between(as.Date(timestamp), as.Date('2021-09-15'), as.Date('2021-09-30'))) 
+
+
+test_q <- c("SELECT *  
+FROM `world-fishing-827.pipe_production_v20201001.research_messages` 
+WHERE 
+  DATE(_PARTITIONTIME) BETWEEN '2021-09-15' AND '2021-09-30'
+  AND ssvid = '150400453'")
+good_seg <- fishwatchr::gfw_query(query = test_q,
+                                     run_query = TRUE,
+                                     con = con)$data
+
+
+test_g1 <- good_seg %>%
+  filter(!is.na(lat)) %>%
+  arrange(timestamp) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) %>%
+  group_by(ssvid) %>%
+  summarize() %>%
+  sf::st_cast(., "LINESTRING") %>%
+  fishwatchr::recenter_sf(., center = new_center)
+
+ggplot() +
+  geom_gfw_outline(center = new_center, 
+                   theme = "dark") +
+  geom_gfw_land(center = new_center) +
+  geom_sf(
+    data = test_g1,
+      aes(color = ssvid, group = ssvid) #, 
+    #color = fishwatchr::gfw_palettes$secondary[2]
+  ) +
+  # geom_sf(
+  #   data = recenter_lryy715_points,
+  #   color = fishwatchr::gfw_palettes$secondary[1],
+  #   size = 0.5
+  # ) +
+  theme_gfw_map(theme = "light")
+
+```
 
 # AIS message types
 

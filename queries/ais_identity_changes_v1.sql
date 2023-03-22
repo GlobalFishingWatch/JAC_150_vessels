@@ -65,7 +65,7 @@ missing_static_positions AS (
     END AS static_lat,
     CASE
       WHEN
-        lat IS NOT NULL AND
+        lon IS NOT NULL AND
         type IN ('AIS.5', 'AIS.24', 'AIS.19')
       THEN lon
       WHEN
