@@ -52,6 +52,16 @@ foo( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here",
 if (!require("fishwatchr")) {devtools::install_github("GlobalFishingWatch/fishwatchr")}
 library(fishwatchr)
 
+if (!require("extrafont"))
+  install.packages("extrafont")
+
+# Unfortunately `extrafont::font_import()` will fail on latest Rttf2pt1 package...
+# so we need to install old version
+devtools::install_version("Rttf2pt1", version = "1.3.8")
+
+# Import fonts to R
+# This will take few minutes
+extrafont::font_import()
 ```
 
 Establish connection to BigQuery project
@@ -464,10 +474,13 @@ outside_chn_ais<- fishwatchr::gfw_query(query = chn_ports,
 We want to evaluate when and where vessel of interest are changing there names. 
 
 ```{r, echo=F}
-ais_change_location_q <- readr::read_file(file = here::here("queries", ".", "ais_identity_changes_v1.sql"))
-name_change <- fishwatchr::gfw_query(query = ais_change_location_q,
-                                 run_query = TRUE,
-                                 con = con)$data
+# ais_change_location_q <- readr::read_file(file = here::here("queries", ".", "ais_identity_changes_v1.sql"))
+# name_change <- fishwatchr::gfw_query(query = ais_change_location_q,
+#                                  run_query = TRUE,
+#                                  con = con)$data
+# 
+# name_change %>% saveRDS(here::here("data", ".", "ais_identity_changes.rds"))
+name_change <- read_rds(here::here("data", ".", "ais_identity_changes.rds"))
 
 # identify LU RONG YUAN YU 715 change points 
 # this name used on 13 MMSIs 
@@ -595,7 +608,7 @@ Maps
 
 ```{r, echo=F}
 
-new_center <- 200
+new_center <- -80
 
 recenter_lryy715 <- lryy715_time_lines %>%
   filter(!is.na(lat)) %>%
@@ -624,7 +637,7 @@ ggplot() +
       aes(color = group) #, 
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
-  #geom_gfw_eez() +
+  geom_gfw_eez(theme = 'light', center = new_center, alpha = 0.05) +
   geom_sf(
   data = recenter_lryy715_points,
   aes(color = group),
@@ -670,6 +683,23 @@ ggplot() +
 ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10, height = 7)
   
 ```
+```{r, echo=F}
+#look to see if LRYY277 has much transmission on other vessel ssvids. Doesn't appear to be significantly different  
+table(name_change$shipname)
+
+lryy277 <- bind_rows(
+  # static 
+  name_change %>% filter(stringr::str_detect(static_name, '277$') |
+                       static_name  == 'LURONGYUANYU277'),
+  # prev 
+  name_change %>% filter(stringr::str_detect(next_name, '277$') |
+                       next_name == 'LURONGYUANYU277')
+  )
+
+table(lryy277$ssvid)
+
+
+```
 
 ```{r, echo=F}
 df <- read.csv(here::here("data", ".", "150400453.csv"))
@@ -680,12 +710,40 @@ df$shipname[df$shipname=='LURONGYUANYU715'] <- 'LURONGYUANYU 715'
 table(df$shipname)
 
 df$timestamp <- as.POSIXct(df$timestamp, format='%d/%m/%Y %H:%M')
-time_plot_df2 <- df %>% group_by(shipname) %>% summarise(
+
+df <- df %>% group_by(ssvid, shipname) %>% mutate(gap_days = difftime(timestamp, lag(timestamp), units=c('days')))
+df$seg <- FALSE
+df$seg[df$gap_days<5] <- TRUE
+
+
+# identify group change points based on segment differences
+j=1
+i=1
+df$grp <- NA
+for (i in 2:nrow(df)){
+  if(df$seg[i] != df$seg[i-1]){
+    df$grp[i] <- j+1
+    j = j+1 
+    } else {df$grp[i] = j}
+}
+# manually set group point 1
+df$grp[1] <- 1
+
+# change points to vessel names currently go into their own group (due to difference in true false) - change this to the next group  
+grp_tab <- df %>% group_by(grp) %>% summarise(n=n())
+grp_tab$grp[grp_tab$n==1]
+df$grp[df$grp %in% grp_tab$grp[grp_tab$n==1]] <- df$grp[df$grp %in% grp_tab$grp[grp_tab$n==1]] +1
+
+# adjust change point 2 to go into group 3 
+df$grp[df$grp == 2] <- df$grp[df$grp == 2]+1 
+
+# make segments based on change points        
+time_plot_df2 <- df %>% group_by(shipname, grp) %>% summarise(
   first_trans = min(timestamp), 
   last_trans = max(timestamp),
   n=n()
 )
-
+time_plot_df2
 # note need to break the data into groups by continuous transmission on MMSI 
 
 ```
@@ -807,6 +865,125 @@ ggplot() +
   #   size = 0.5
   # ) +
   theme_gfw_map(theme = "light")
+
+```
+
+# Name Locations 
+
+```{r, echo=F}
+ais_identity_q <- readr::read_file(file = here::here("queries", ".", "ais_identity_changes_v2.sql"))
+
+daily_identity <- fishwatchr::gfw_query(query = ais_identity_q,
+                                 run_query = TRUE,
+                                 con = con)$data
+
+daily_identity$shipname_g <- NA
+daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^FU')] <- 'FU YUAN YU'
+daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^HA')] <- 'HAI HANG'
+daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^LU')] <- 'LU RONG YU'
+daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^U')] <- 'LU RONG YU'
+daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^SHUN')] <- 'SHUN HANG'
+
+table(daily_identity$shipname,daily_identity$shipname_g)
+
+new_center <- -80
+
+st_as_sfc(daily_identity$avg_lat_lon, crs = st_crs(4326)) %>% fishwatchr::recenter_sf(., center = new_center)
+
+# read WKT points into spatial object
+daily_identity$pts <- lapply(daily_identity$avg_lat_lon, FUN = function(x) readWKT(x))
+
+# extract point coordinates
+daily_identity$lon <- coordinates(daily_identity$pts)[c(T,F)]
+daily_identity$lat <- coordinates(daily_identity$pts)[c(F,T)]
+
+
+
+
+bounding <- transform_box(xlim = c(-110, -30),
+                          ylim = c(0, -60),
+                          output_crs = fishwatchr::gfw_projections("South Atlantic")$proj_string)
+
+regional_map_light <- gfw_map(theme = 'light', res = 10) +
+  coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
+           ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
+           crs = bounding$out_crs)
+
+daily_identity_points <- filter(daily_identity, !is.na(shipname_g)) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = bounding$out_crs) 
+
+ggplot() +
+  # geom_gfw_outline(center = new_center, 
+  #                  theme = "dark") 
+  regional_map_light +
+  #geom_gfw_land(center = new_center) +
+  geom_sf(
+    # data = daily_identity,
+    #   aes(x=lon, y=lat, color = shipname_g),
+        data = daily_identity_points,
+      aes( color = shipname_g),
+      size = 1.5
+    #color = fishwatchr::gfw_palettes$secondary[2]
+  ) +
+  #geom_gfw_eez(theme = 'light', center = new_center, alpha = 0.2) +
+  # scale_colour_manual(values = gfw_palettes$tracks) +
+  # theme_gfw_map(theme = "light") +
+  theme(legend.position="right", ) +
+  labs(colour = 'Name Group')
+
+```
+
+# Gear Changes 
+
+```{r, echo=F}
+# add speed bins
+name_change$speed_bin <- NA 
+name_change$speed_bin[between(name_change$speed, 0, 1)] <- '0-1'
+name_change$speed_bin[between(name_change$speed, 1, 2)] <- '1-2'
+name_change$speed_bin[between(name_change$speed, 2, 3)] <- '2-3'
+name_change$speed_bin[between(name_change$speed, 3, 4)] <- '3-4'
+name_change$speed_bin[between(name_change$speed, 4, 5)] <- '4-5'
+name_change$speed_bin[between(name_change$speed, 5, 6)] <- '5-6'
+name_change$speed_bin[name_change$speed > 6] <- '6+'
+
+# make different regions
+name_change$region <- NA
+name_change$region[between(name_change$lon, -120, -72) & between(name_change$lat, -60, 0)] <- 'Pacific'
+name_change$region[between(name_change$lon, -61, -50) & between(name_change$lat, -49, -37)] <- 'Atlantic'
+
+# look at distribution of data between regions
+table(name_change$ssvid, name_change$region) 
+# only a handful of MMSIs have enough data in each region for comparison (say 100 trans in each)
+
+gear_df <- name_change %>% filter(ssvid %in% c('150402951','150402949','150402947','150402944','150402940', '150400453'))
+
+tab_df<- gear_df %>% 
+  group_by(ssvid, region, speed_bin) %>% 
+    summarise(transmissions=n()) %>% 
+      left_join(gear_df %>% group_by(ssvid, region) %>% summarise(region_ttl=n()))
+
+tab_df$prop <- tab_df$transmissions/tab_df$region_ttl 
+
+ggplot() +
+  geom_bar(data=filter(tab_df, region=='Pacific'), 
+                 aes(x=speed_bin, y=prop, fill=ssvid), 
+                 position=position_dodge(), stat='identity')+
+  labs(x='Speed knots', y='Proportion') +
+  theme_classic()
+
+ggsave(here::here("outputs", "figures", "Pacific_speed.png"))
+
+ggplot() +
+  geom_bar(data=filter(tab_df, region=='Atlantic'), 
+                 aes(x=speed_bin, y=prop, fill=ssvid), 
+                 position=position_dodge(), stat='identity')+
+  labs(x='Speed knots', y='Proportion') +
+  theme_classic()
+
+ggsave(here::here("outputs", "figures", "Atlantic_speed.png"))
+
 
 ```
 
