@@ -111,3 +111,108 @@ focal <- focal[!is.na(focal$lat) & !is.na(focal$lon) ,]
 #                           length, width, status)
 # write.csv(out_dat2, 'LRYY715 150400453.csv', row.names = F)
 
+
+
+# plot one section of code in equal eartth
+
+# g1 <- filter(lryy715_time_lines, group == '150400453_3')
+#
+# g1_et <- g1 %>% mutate(time_diff = difftime( timestamp, lag(timestamp), units = c("days")))
+# max(g1_et$time_diff, na.rm=t)
+# min(g1_et$time_diff, na.rm=t)
+#
+# test <- filter(lryy715_time_lines, ssvid == '150400453',
+#                between(as.Date(timestamp), as.Date('2021-09-15'), as.Date('2021-09-30')))
+#
+#
+# test_q <- c("SELECT *
+# FROM `world-fishing-827.pipe_production_v20201001.research_messages`
+# WHERE
+#   DATE(_PARTITIONTIME) BETWEEN '2021-09-15' AND '2021-09-30'
+#   AND ssvid = '150400453'
+#   AND seg_id IN (SELECT seg_id FROM world-fishing-827.pipe_production_v20201001.research_segs WHERE good_seg IS TRUE AND overlapping_and_short IS FALSE)")
+# good_seg <- fishwatchr::gfw_query(query = test_q,
+#                                   run_query = TRUE,
+#                                   con = con)$data
+#
+# bounding <- transform_box(xlim = c(-110, -30),
+#                           ylim = c(0, -60),
+#                           output_crs = fishwatchr::gfw_projections("South Atlantic")$proj_string)
+#
+# View(good_seg %>% arrange(timestamp))
+#
+# test_g1 <- good_seg %>%
+#   filter(!is.na(lat)) %>%
+#   arrange(timestamp) %>%
+#   sf::st_as_sf(.,
+#                coords = c("lon", "lat"),
+#                crs = 4326) %>%
+#   group_by(ssvid) %>%
+#   summarize() %>%
+#   sf::st_cast(., "LINESTRING") %>%
+#   fishwatchr::recenter_sf(., center = new_center)
+#
+# ggplot() +
+#   geom_gfw_outline(center = new_center,
+#                    theme = "dark") +
+#   geom_gfw_land(center = new_center) +
+#   geom_sf(
+#     data = test_g1,
+#     aes(color = ssvid, group = ssvid) #,
+#     #color = fishwatchr::gfw_palettes$secondary[2]
+#   ) +
+#   # geom_sf(
+#   #   data = recenter_lryy715_points,
+#   #   color = fishwatchr::gfw_palettes$secondary[1],
+#   #   size = 0.5
+#   # ) +
+#   theme_gfw_map(theme = "light")
+#
+# ggplot(good_seg %>% arrange(timestamp)) +
+#   geom_path(aes(x=lon, y=lat))
+
+
+# light centered map removed
+
+
+# create bounding box for plot to set bounds
+bounding <- transform_box(xlim = c(-95, -30),
+                          ylim = c(0, -55),
+                          output_crs = gfw_projections("Equal Earth")$proj)
+
+# make a
+regional_map_light <- gfw_map(theme = 'light', res = 10) +
+  coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
+           ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
+           crs = bounding$out_crs)
+
+daily_identity_points <- filter(daily_identity, !is.na(shipname_g)) %>%
+  sf::st_as_sf(.,
+               coords = c("lon", "lat"),
+               crs = 4326)
+
+# daily_identity_points_trans <- st_transform(daily_identity_points, crs=bounding$out_crs)
+daily_identity_points_trans <- st_transform(daily_identity_points, crs=4326)
+
+map <- ggplot() +
+  # geom_gfw_outline(center = new_center,
+  #                  theme = "dark")
+  # regional_map_light +
+  geom_gfw_land(theme = 'light', proj = gfw_projections("Equal Earth")$proj) +
+  geom_gfw_eez(proj = gfw_projections("Equal Earth")$proj, colour='black') +
+  geom_sf(
+    # data = daily_identity,
+    #   aes(x=lon, y=lat, color = shipname_g),
+    data = dplyr::select(daily_identity_points_trans,-avg_lat_lon),
+    aes( color = shipname_g),
+    size = 1.5
+    #color = fishwatchr::gfw_palettes$secondary[2]
+  ) +
+  #geom_gfw_eez(theme = 'light', center = new_center, alpha = 0.2) +
+  # scale_colour_manual(values = gfw_palettes$tracks) +
+  theme_gfw_map(theme = "light") +
+  theme(legend.position="right", ) +
+  labs(colour = 'Name Group') +
+  coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
+           ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
+           crs = bounding$out_crs)

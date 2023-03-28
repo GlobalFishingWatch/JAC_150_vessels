@@ -46,7 +46,7 @@ foo <- function(x){
 }
 
 #  Then try/install packages...
-foo( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here", "sf", "extrafont", "patchwork", "terra") )
+foo( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here", "sf", "extrafont", "patchwork", "terra", "rgeos") )
 
 # get fishwatch r independently 
 if (!require("fishwatchr")) {devtools::install_github("GlobalFishingWatch/fishwatchr")}
@@ -62,6 +62,9 @@ devtools::install_version("Rttf2pt1", version = "1.3.8")
 # Import fonts to R
 # This will take few minutes
 extrafont::font_import()
+
+# remove a package causing issues 
+#detach("package:plyr", unload=TRUE)
 ```
 
 Establish connection to BigQuery project
@@ -93,12 +96,15 @@ Calling the table directly as it is saved due to being a large query
 First question is establish how many vessels have the 150 MMSI prefix in total. 
 
 ```{r, echo=FALSE}
-q_voi_ais <- c("SELECT * FROM `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2020_2022`")
-
-all_150_ais <- fishwatchr::gfw_query(query = q_voi_ais,
-                                 run_query = TRUE, 
-                                 con = con)$data
-n_distinct(all_150_ais$ssvid)
+# q_voi_ais <- c("SELECT * FROM `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2020_2022`")
+# 
+# all_150_ais <- fishwatchr::gfw_query(query = q_voi_ais,
+#                                  run_query = TRUE, 
+#                                  con = con)$data
+# n_distinct(all_150_ais$ssvid)
+# 
+# all_150_ais %>% saveRDS(here::here("data", ".", "all_150_ais.rds"))
+all_150_ais <- read_rds(here::here("data", ".", "all_150_ais.rds"))
 
 ```
 
@@ -110,10 +116,14 @@ Chunk trys to identify gear and has code to write out gear datasets (hashed as t
 
 ```{r, echo=FALSE}
 # outside china gets all 150 vessels AIS outside of China 
-outside_chn <- readr::read_file(file = here::here("queries", ".", "outside_CHN.sql"))
-outside_chn_ais<- fishwatchr::gfw_query(query = outside_chn,
-                                 run_query = TRUE,
-                                 con = con)$data
+#outside_chn <- readr::read_file(file = here::here("queries", ".", "outside_CHN.sql"))
+#outside_chn_ais<- fishwatchr::gfw_query(query = outside_chn,
+#                                 run_query = TRUE,
+#                                 con = con)$data
+#
+#outside_chn_ais %>% saveRDS(here::here("data", ".", "outside_chn_ais.rds"))
+outside_chn_ais <- read_rds(here::here("data", ".", "outside_chn_ais.rds"))
+
 
 # write.csv(outside_chn_ais, '../data/step1_outside_CHN.csv', row.names = F)
 
@@ -419,6 +429,9 @@ working_df$month  <- month(working_df$timestamp)
 # filter(working_df, year == '2020') %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_2020_",str_replace_all(Sys.Date(), '-','_'),".csv")))
 # filter(working_df, year == '2021') %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_2021_",str_replace_all(Sys.Date(), '-','_'),".csv")))
 # filter(working_df, year == '2022') %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_2022_",str_replace_all(Sys.Date(), '-','_'),".csv")))
+
+
+
 ```
 
 Map
@@ -426,14 +439,21 @@ Map
 ```{r, echo=FALSE}
 
 # lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
-working_df$lat_bin <- round(working_df$lat,1)
-working_df$lon_bin <- round(working_df$lon,1)
+working_df$lat_bin <- round(working_df$lat/0.5)*0.5
+working_df$lon_bin <- round(working_df$lon/0.5)*0.5
 
+# count positions in each lat lon bin
 presence <- working_df %>%
   group_by(lat_bin, lon_bin) %>%
     summarise(
-      positions = n(), 
+      positions = dplyr::n(), 
     )
+
+# set upper limit
+up_lim <- 5000 
+new_center <- -80
+# reset poistions 
+#presence$positions[presence$positions>up_lim] <- up_lim
 
   presence %>%
   recenter_raster(raster_df = .,
@@ -441,21 +461,146 @@ presence <- working_df %>%
                   x_lab = 'lon_bin',
                   y_lab = 'lat_bin',
                   fill_lab = 'positions',
-                  center = -80) %>%
+                  center = new_center) %>%
   ggplot() +
+  geom_gfw_outline(center = new_center, 
+               theme = "dark") +
   geom_raster(aes(x = lon_bin,
                   y = lat_bin,
                   fill = positions)) +
-  geom_gfw_land(theme = 'light', center = -80) +
-  geom_gfw_eez(theme = 'light', center = -80, alpha = 0.05) +
+  geom_gfw_land(theme = 'dark', center = new_center) +
+  geom_gfw_eez(theme = 'dark', center = new_center, alpha = 0.2) +
   scale_fill_gradientn(colors = gfw_palette('map_effort_dark'),
-                       limits = c(0,10000),
+                       limits = c(0,up_lim),
                        oob = scales::squish,
                        na.value = NA) +
   labs(fill = 'AIS Positions') +
   theme_gfw_map(theme = 'light')
 
-ggsave(here::here("outputs", "figures", "voi_ais_map.png"))
+ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_global_dark.png"))
+
+```
+Pacific Map - note not currently working to transform raster to Pacific view 
+
+```{r, echo=FALSE, warning=F}
+
+# lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
+res <- 0.5
+working_df$lat_bin <- round(working_df$lat / res) * res
+working_df$lon_bin <- round(working_df$lon / res) * res
+
+# count positions in each lat lon bin
+presence <- working_df %>%
+  group_by(lat_bin, lon_bin) %>%
+    summarise(
+      positions = dplyr::n(), 
+    )
+
+# set upper limit
+up_lim <- 10000 
+#set plot center 
+new_center <- -90
+
+# set proj for bounding box
+best_proj <- "+proj=eqearth +lon_0=-90 +wktext"
+
+# set plot limits for Pacific 
+bounding_pacific <- transform_box(xlim = c(-120, -70),
+                          ylim = c(10, -55),
+                          output_crs = best_proj)
+  
+pacific_map <- presence %>%
+  recenter_raster(raster_df = .,
+                  res = 1,
+                  x_lab = 'lon_bin',
+                  y_lab = 'lat_bin',
+                  fill_lab = 'positions',
+                  center = new_center) %>% 
+  ggplot()+
+  geom_gfw_outline(center = new_center, theme = "dark") +
+  geom_raster(aes(x= lon_bin, y=lat_bin, fill = positions)) +
+    geom_gfw_eez(theme = 'dark', alpha = 0.2, center = new_center) +
+    geom_gfw_land(theme = 'dark', center = new_center) +
+    scale_fill_gradientn(colors = gfw_palette('map_effort_dark'),
+                       limits = c(0,up_lim),
+                       oob = scales::squish,
+                       na.value = NA) +   
+    coord_sf(xlim = c(bounding_pacific$box_out[['xmin']], bounding_pacific$box_out[['xmax']]),
+           ylim = c(bounding_pacific$box_out[['ymin']], bounding_pacific$box_out[['ymax']]),
+           crs = bounding_pacific$out_crs) +
+      theme_gfw_map(theme = 'light') 
+
+
+fishwatchr::add_little_globe(pacific_map,
+                             main_box = bounding_pacific,
+                             globe_rel_size = '0.25',
+                             globe_just = 'inside',
+                             globe_position = 'upperright')  
+  
+  
+ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_pacific_dark.png"))
+
+```
+
+Pacific Map - note not currently working to transform raster to Pacific view 
+
+```{r, echo=FALSE, warning=F}
+
+# lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
+res <- 0.1
+working_df$lat_bin <- round(working_df$lat / res) * res
+working_df$lon_bin <- round(working_df$lon / res) * res
+
+# count positions in each lat lon bin
+presence <- working_df %>%
+  group_by(lat_bin, lon_bin) %>%
+    summarise(
+      positions = dplyr::n(), 
+    )
+
+# set upper limit
+up_lim <- 10000 
+#set plot center 
+new_center <- -60
+
+# set proj for bounding box
+best_proj <- "+proj=eqearth +lon_0=-60 +wktext"
+
+# set plot limits for Pacific 
+bounding_atlantic <- transform_box(xlim = c(-70, -50),
+                          ylim = c(-35, -55),
+                          output_crs = best_proj)
+  
+atlantic_map <- presence %>%
+  recenter_raster(raster_df = .,
+                  res = 1,
+                  x_lab = 'lon_bin',
+                  y_lab = 'lat_bin',
+                  fill_lab = 'positions',
+                  center = new_center) %>% 
+  ggplot()+
+  geom_gfw_outline(center = new_center, theme = "dark") +
+  geom_raster(aes(x= lon_bin, y=lat_bin, fill = positions)) +
+    geom_gfw_eez(theme = 'dark', alpha = 0.2, center = new_center) +
+    geom_gfw_land(theme = 'dark', center = new_center) +
+    scale_fill_gradientn(colors = gfw_palette('map_effort_dark'),
+                       #limits = c(0,up_lim),
+                       oob = scales::squish,
+                       na.value = NA) +   
+    coord_sf(xlim = c(bounding_atlantic$box_out[['xmin']], bounding_atlantic$box_out[['xmax']]),
+           ylim = c(bounding_atlantic$box_out[['ymin']], bounding_atlantic$box_out[['ymax']]),
+           crs = bounding_atlantic$out_crs) +
+      theme_gfw_map(theme = 'light') 
+
+
+fishwatchr::add_little_globe(atlantic_map,
+                             main_box = bounding_atlantic,
+                             globe_rel_size = '0.25',
+                             globe_just = 'inside',
+                             globe_position = 'upperleft')  
+  
+  
+ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_atlantic_dark.png"))
 
 ```
 
@@ -481,6 +626,7 @@ We want to evaluate when and where vessel of interest are changing there names.
 # 
 # name_change %>% saveRDS(here::here("data", ".", "ais_identity_changes.rds"))
 name_change <- read_rds(here::here("data", ".", "ais_identity_changes.rds"))
+name_change %>% write.csv(here::here("data", ".", "ais_identity_changes.csv"))
 
 # identify LU RONG YUAN YU 715 change points 
 # this name used on 13 MMSIs 
@@ -582,6 +728,8 @@ ssvid_150400453_g3 <- filter(name_change, ssvid == '150400453',
                             between(as.Date(timestamp), as.Date('2021-09-13'), as.Date('2021-11-30')))  
 ssvid_150400453_g3$group <- '150400453-3'
 
+ssvid_150400453_g3_t <- ssvid_150400453_g3 
+
 ssvid_150400453_g4 <- filter(name_change, ssvid == '150400453', 
                             between(as.Date(timestamp), as.Date('2022-07-25'), as.Date('2022-12-28')))
 ssvid_150400453_g4$group <- '150400453-4'
@@ -607,9 +755,12 @@ lryy715_time_points <- filter(lryy715_time, ssvid %in% c('150400450', '150400467
 Maps 
 
 ```{r, echo=F}
+best_proj <- "+proj=eqearth +lon_0=-80 +wktext"  #works 
 
+# set centre
 new_center <- -80
 
+# make sf object of lines for plotting 
 recenter_lryy715 <- lryy715_time_lines %>%
   filter(!is.na(lat)) %>%
   arrange(timestamp) %>%
@@ -617,49 +768,64 @@ recenter_lryy715 <- lryy715_time_lines %>%
                coords = c("lon", "lat"), 
                crs = 4326) %>%
   group_by(group) %>%
-  summarize() %>%
-  sf::st_cast(., "LINESTRING") %>%
-  fishwatchr::recenter_sf(., center = new_center)
+  summarize(do_union = FALSE) %>%
+  sf::st_cast(., "MULTILINESTRING") %>%
+  fishwatchr::recenter_sf(., center = new_center, buffer = 0)
 
+
+# reset group levels so 150500453 colouration consistent 
+recenter_lryy715$group[stringr::str_detect(recenter_lryy715$group, '150400453')] <- '150400453'
+
+# make points for MMSIs with few transmitions 
 recenter_lryy715_points <- lryy715_time_points %>%
   sf::st_as_sf(., 
                coords = c("lon", "lat"), 
                crs = 4326) %>%
-  fishwatchr::recenter_sf(., center = new_center)
+  fishwatchr::recenter_sf(., center = new_center, buffer = 0)
+
+# transform lines using best projection to try deal with 180 issue 
+reproj_lryy715 <- st_transform(recenter_lryy715, crs=best_proj)
+reproj_lryy715_points <- st_transform(recenter_lryy715_points, crs=best_proj)
 
 
+# make dark theme global map of activity 
 ggplot() +
   geom_gfw_outline(center = new_center, 
                    theme = "dark") +
   geom_gfw_land(center = new_center) +
   geom_sf(
-    data = recenter_lryy715,
+    data = reproj_lryy715,
       aes(color = group) #, 
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
-  geom_gfw_eez(theme = 'light', center = new_center, alpha = 0.05) +
+  geom_gfw_eez(theme = 'dark', center = new_center, alpha = 0.25) +
   geom_sf(
-  data = recenter_lryy715_points,
-  aes(color = group),
-  size = 1.5
+    data = reproj_lryy715_points,
+    aes(color = group),
+    size = 0.75
   ) +
   # scale_colour_manual(values = gfw_palettes$tracks) +
   theme_gfw_map(theme = "light") +
   theme(legend.position="right", ) +
   labs(colour = 'MMSI')
 
-ggsave(here::here("outputs", "figures", "LRYY715_mmsi_map.png"), width = 10, height = 7)
+# save ouputs in the output directory 
+ggsave(here::here("outputs", "figures", "LRYY715_mmsi_map_v2.png"), width = 10, height = 7)
+write.csv(lryy715_time_lines, here::here("data", ".", "lryy715_time_lines.csv"))
 ```
 
 ```{r, echo=F}
+# make a timeseries plot of the LU RONG YUAN YU 715 name changes 
 time_plot_df <- lryy715_time %>% group_by(group) %>% summarise(
   first_trans = min(timestamp), 
   last_trans = max(timestamp),
   n=n()
 )
 
+# make the individual periods of 150400453 in the same group for time plot 
 time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
 
+# plot out name changes with time plot 
 ggplot() +
   geom_segment(
     data = time_plot_df,
@@ -674,12 +840,13 @@ ggplot() +
     ),
     size = 2
   ) + 
+  # plot points of ssvids with only single transmissions 
   geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
   labs(x= 'date', y='MMSI' )+
   theme_classic() +
   theme(legend.position="none")
 
-
+# save outputs in outputs directory 
 ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10, height = 7)
   
 ```
@@ -687,6 +854,7 @@ ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10,
 #look to see if LRYY277 has much transmission on other vessel ssvids. Doesn't appear to be significantly different  
 table(name_change$shipname)
 
+# find data associated to LURONGYUANYU277
 lryy277 <- bind_rows(
   # static 
   name_change %>% filter(stringr::str_detect(static_name, '277$') |
@@ -697,26 +865,38 @@ lryy277 <- bind_rows(
   )
 
 table(lryy277$ssvid)
-
+# same proble as LRYY715 don't proceed with plotting 
 
 ```
 
 ```{r, echo=F}
+#pull in ee data as it has cleaner names 
 df <- read.csv(here::here("data", ".", "150400453.csv"))
 
+# some of the data has lat/lon transposed. Unclear why but fix this as below -55 is clearly wrong
+df$lat2 <- df$lat
+df$lon2 <- df$lon
+df$lat2[df$lat <= -55] <- df$lon[df$lat <= -55]  
+df$lon2[df$lat <= -55] <- df$lat[df$lat <= -55]  
+
+# normalise shipname 
 df$shipname[df$shipname=='HAHHHING 3'] <- 'HAI HANG 3'
 df$shipname[df$shipname=='HAIHANG3'] <- 'HAI HANG 3'
 df$shipname[df$shipname=='LURONGYUANYU715'] <- 'LURONGYUANYU 715'
 table(df$shipname)
 
+# make date in R date format  
 df$timestamp <- as.POSIXct(df$timestamp, format='%d/%m/%Y %H:%M')
 
+ # add diff time column 
 df <- df %>% group_by(ssvid, shipname) %>% mutate(gap_days = difftime(timestamp, lag(timestamp), units=c('days')))
+
+# make gap segments logical column
 df$seg <- FALSE
 df$seg[df$gap_days<5] <- TRUE
 
 
-# identify group change points based on segment differences
+# identify group change points based on segment differences - bit of a hack but it works 
 j=1
 i=1
 df$grp <- NA
@@ -749,20 +929,22 @@ time_plot_df2
 ```
 
 ```{r, echo=F}
+# set centre for global plot 
+new_center <- -80
 
-new_center <- 200
-
+# make the recentered plot df 
 recenter_lryy715 <- df %>%
-  filter(!is.na(lat)) %>%
-  arrange(timestamp) %>%
+  filter(!is.na(lat2)) %>%
   sf::st_as_sf(., 
-               coords = c("lon", "lat"), 
+               coords = c("lon2", "lat2"), 
                crs = 4326) %>%
-  group_by(shipname) %>%
-  summarize() %>%
+  group_by(grp, shipname) %>%
+  arrange(timestamp) %>%
+  summarize(do_union = FALSE) %>%
   sf::st_cast(., "LINESTRING") %>%
-  fishwatchr::recenter_sf(., center = new_center)
+  fishwatchr::recenter_sf(., center = new_center, buffer=0)
 
+# make name pattern coloured map 
 ggplot() +
   geom_gfw_outline(center = new_center, 
                    theme = "dark") +
@@ -772,18 +954,20 @@ ggplot() +
       aes(color = shipname) #, 
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
-  #geom_gfw_eez() +
+  geom_gfw_eez(theme = 'dark', center = new_center, alpha = 0.25) +
   # scale_colour_manual(values = gfw_palettes$tracks) +
   theme_gfw_map(theme = "light") +
-  theme(legend.position="right", ) +
+  theme(legend.position="bottom") +
   labs(colour = 'Vessel Name')
 
+# save output in outputs directory 
 ggsave(here::here("outputs", "figures", "LRYY715_name_map.png"), width = 10, height = 7)
 
 ```
 ```{r, echo=F}
 # time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
 
+# make timeline plot of name changes 
 ggplot() +
   geom_segment(
     data = time_plot_df2,
@@ -810,73 +994,24 @@ ggplot() +
   theme_classic() +
   theme(legend.position="none")
 
-
+# save outputs 
 ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10, height = 7)
   
-```
-
-
-
-```{r, echo=F}
-
-g1 <- filter(lryy715_time_lines, group == '150400453_3')
-
-g1_et <- g1 %>% mutate(time_diff = difftime( timestamp, lag(timestamp), units = c("days")))
-max(g1_et$time_diff, na.rm=t)
-min(g1_et$time_diff, na.rm=t)
-
-test <- filter(lryy715_time_lines, ssvid == '150400453', 
-                            between(as.Date(timestamp), as.Date('2021-09-15'), as.Date('2021-09-30'))) 
-
-
-test_q <- c("SELECT *  
-FROM `world-fishing-827.pipe_production_v20201001.research_messages` 
-WHERE 
-  DATE(_PARTITIONTIME) BETWEEN '2021-09-15' AND '2021-09-30'
-  AND ssvid = '150400453'")
-good_seg <- fishwatchr::gfw_query(query = test_q,
-                                     run_query = TRUE,
-                                     con = con)$data
-
-
-test_g1 <- good_seg %>%
-  filter(!is.na(lat)) %>%
-  arrange(timestamp) %>%
-  sf::st_as_sf(., 
-               coords = c("lon", "lat"), 
-               crs = 4326) %>%
-  group_by(ssvid) %>%
-  summarize() %>%
-  sf::st_cast(., "LINESTRING") %>%
-  fishwatchr::recenter_sf(., center = new_center)
-
-ggplot() +
-  geom_gfw_outline(center = new_center, 
-                   theme = "dark") +
-  geom_gfw_land(center = new_center) +
-  geom_sf(
-    data = test_g1,
-      aes(color = ssvid, group = ssvid) #, 
-    #color = fishwatchr::gfw_palettes$secondary[2]
-  ) +
-  # geom_sf(
-  #   data = recenter_lryy715_points,
-  #   color = fishwatchr::gfw_palettes$secondary[1],
-  #   size = 0.5
-  # ) +
-  theme_gfw_map(theme = "light")
-
 ```
 
 # Name Locations 
 
 ```{r, echo=F}
+
+# query to get best name on a day
 ais_identity_q <- readr::read_file(file = here::here("queries", ".", "ais_identity_changes_v2.sql"))
 
+# extract data 
 daily_identity <- fishwatchr::gfw_query(query = ais_identity_q,
                                  run_query = TRUE,
                                  con = con)$data
 
+# make normalised name groups 
 daily_identity$shipname_g <- NA
 daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^FU')] <- 'FU YUAN YU'
 daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^HA')] <- 'HAI HANG'
@@ -884,11 +1019,11 @@ daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^LU')] <
 daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^U')] <- 'LU RONG YU'
 daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^SHUN')] <- 'SHUN HANG'
 
+# check group relationships 
 table(daily_identity$shipname,daily_identity$shipname_g)
 
+# set plot centre 
 new_center <- -80
-
-st_as_sfc(daily_identity$avg_lat_lon, crs = st_crs(4326)) %>% fishwatchr::recenter_sf(., center = new_center)
 
 # read WKT points into spatial object
 daily_identity$pts <- lapply(daily_identity$avg_lat_lon, FUN = function(x) readWKT(x))
@@ -897,44 +1032,99 @@ daily_identity$pts <- lapply(daily_identity$avg_lat_lon, FUN = function(x) readW
 daily_identity$lon <- coordinates(daily_identity$pts)[c(T,F)]
 daily_identity$lat <- coordinates(daily_identity$pts)[c(F,T)]
 
+# create bounding box for plot to set bounds 
+bounding <- transform_box(xlim = c(-95, -30),
+                          ylim = c(0, -55),
+                          output_crs = gfw_projections("Equal Earth")$proj)
 
-
-
-bounding <- transform_box(xlim = c(-110, -30),
-                          ylim = c(0, -60),
-                          output_crs = fishwatchr::gfw_projections("South Atlantic")$proj_string)
-
-regional_map_light <- gfw_map(theme = 'light', res = 10) +
-  coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
-           ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
-           crs = bounding$out_crs)
-
+# make st object of identity points
 daily_identity_points <- filter(daily_identity, !is.na(shipname_g)) %>%
   sf::st_as_sf(., 
                coords = c("lon", "lat"), 
-               crs = bounding$out_crs) 
+               crs = 4326) 
 
-ggplot() +
-  # geom_gfw_outline(center = new_center, 
-  #                  theme = "dark") 
-  regional_map_light +
-  #geom_gfw_land(center = new_center) +
+# reproject identity points object 
+daily_identity_points_trans <- st_transform(daily_identity_points, crs=4326)
+
+# map out the data 
+map <- ggplot() +
+  geom_gfw_land(theme = 'light', proj = gfw_projections("Equal Earth")$proj) +
+  geom_gfw_eez(proj = gfw_projections("Equal Earth")$proj, colour='black') +
   geom_sf(
     # data = daily_identity,
     #   aes(x=lon, y=lat, color = shipname_g),
-        data = daily_identity_points,
+        data = dplyr::select(daily_identity_points_trans,-avg_lat_lon),
       aes( color = shipname_g),
       size = 1.5
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
   #geom_gfw_eez(theme = 'light', center = new_center, alpha = 0.2) +
   # scale_colour_manual(values = gfw_palettes$tracks) +
-  # theme_gfw_map(theme = "light") +
-  theme(legend.position="right", ) +
-  labs(colour = 'Name Group')
+  theme_gfw_map(theme = "light") +
+  theme(legend.position="right") +
+  labs(colour = 'Name Group') +
+  coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
+           ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
+           crs = bounding$out_crs)
+
+fishwatchr::add_little_globe(map,
+                             main_box = bounding_box,
+                             globe_rel_size = '0.25',
+                             globe_just = 'inside',
+                             globe_position = 'upperright')
+
+
+ggsave(here::here("outputs", "figures", "Name_group_locations.png"), width = 7, height = 8)
 
 ```
+Atlantic name locations 
 
+```{r, echo=F, warning=F}
+# make the name change map focused on Atlantic squid grounds 
+bounding <- transform_box(xlim = c(-70, -55),
+                          ylim = c(-40, -55),
+                          output_crs = gfw_projections("Equal Earth")$proj)
+
+map_atl <- ggplot() +
+  geom_gfw_land(theme = 'light', proj = gfw_projections("Equal Earth")$proj) +
+  geom_sf(
+    # data = daily_identity,
+    #   aes(x=lon, y=lat, color = shipname_g),
+        data = dplyr::select(daily_identity_points_trans,-avg_lat_lon),
+      aes( color = shipname_g),
+      size = 1.5
+    #color = fishwatchr::gfw_palettes$secondary[2]
+  ) +
+  geom_gfw_eez(proj = gfw_projections("Equal Earth")$proj, colour='black') +
+  theme_gfw_map(theme = "light") +
+  theme(legend.position="right", ) +
+  labs(colour = 'Name Group') +
+  coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
+           ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
+           crs = bounding$out_crs)
+
+fishwatchr::add_little_globe(map_atl,
+                             main_box = bounding,
+                             globe_rel_size = '0.25',
+                             globe_just = 'inside',
+                             globe_position = 'upperright')
+
+
+ggsave(here::here("outputs", "figures", "Name_group_locations_Atlantic.png"), width = 7, height = 8)
+```
+
+
+```{r, echo=F, warning=F}
+# import name_change_l derived from ais_identity_changes_v1.sql WHERE next_name != static_name.  
+# The csv of this data was obtained from BQ then manually grooming in excel to remove name 
+# which weren't thought to represent actual changes in identity e.g. FUYUANYU 715 vs FU YUAN YU 715
+name_change_l <- read.csv(here::here("data", ".", "name_changes_150voi_local.csv"))
+
+# map of name changes
+
+# timeline of name changes
+
+```
 # Gear Changes 
 
 ```{r, echo=F}
@@ -957,15 +1147,17 @@ name_change$region[between(name_change$lon, -61, -50) & between(name_change$lat,
 table(name_change$ssvid, name_change$region) 
 # only a handful of MMSIs have enough data in each region for comparison (say 100 trans in each)
 
+# restrict data to most common ssvids 
 gear_df <- name_change %>% filter(ssvid %in% c('150402951','150402949','150402947','150402944','150402940', '150400453'))
 
-tab_df<- gear_df %>% 
+# get proportion of activity in each 1 knot speed group less than 6 knots 
+tab_df <- filter(gear_df, speed<6) %>% 
   group_by(ssvid, region, speed_bin) %>% 
     summarise(transmissions=n()) %>% 
-      left_join(gear_df %>% group_by(ssvid, region) %>% summarise(region_ttl=n()))
+      left_join(filter(gear_df, speed<6) %>% group_by(ssvid, region) %>% summarise(region_ttl=n())) %>% 
+        mutate(prop = transmissions / region_ttl) 
 
-tab_df$prop <- tab_df$transmissions/tab_df$region_ttl 
-
+# make bar plot for Pacific with bars per mmsi 
 ggplot() +
   geom_bar(data=filter(tab_df, region=='Pacific'), 
                  aes(x=speed_bin, y=prop, fill=ssvid), 
@@ -973,8 +1165,10 @@ ggplot() +
   labs(x='Speed knots', y='Proportion') +
   theme_classic()
 
+# save output 
 ggsave(here::here("outputs", "figures", "Pacific_speed.png"))
 
+# make bar plot for Atlantic with bars per mmsi 
 ggplot() +
   geom_bar(data=filter(tab_df, region=='Atlantic'), 
                  aes(x=speed_bin, y=prop, fill=ssvid), 
@@ -982,9 +1176,18 @@ ggplot() +
   labs(x='Speed knots', y='Proportion') +
   theme_classic()
 
+# save outputs
 ggsave(here::here("outputs", "figures", "Atlantic_speed.png"))
+```
 
 
+```{r, echo=F}
+head(name_change)
+name_change <- name_change %>% mutate(year= year(timestamp), month=month(timestamp))
+
+View(filter(name_change %>% filter(ssvid %in% c('150402951','150402949','150402947','150402944','150402940', '150400453')), speed<6) %>% 
+  group_by(ssvid, region, speed_bin, year) %>% 
+    summarise(transmissions=n()))
 ```
 
 # AIS message types
