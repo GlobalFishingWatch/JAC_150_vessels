@@ -528,6 +528,7 @@ pacific_map <- presence %>%
     coord_sf(xlim = c(bounding_pacific$box_out[['xmin']], bounding_pacific$box_out[['xmax']]),
            ylim = c(bounding_pacific$box_out[['ymin']], bounding_pacific$box_out[['ymax']]),
            crs = bounding_pacific$out_crs) +
+    labs(fill = 'AIS Positions') +
       theme_gfw_map(theme = 'light') 
 
 
@@ -1001,7 +1002,7 @@ ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10,
 
 # Name Locations 
 
-```{r, echo=F}
+```{r, echo=F, warning=FALSE}
 
 # query to get best name on a day
 ais_identity_q <- readr::read_file(file = here::here("queries", ".", "ais_identity_changes_v2.sql"))
@@ -1068,7 +1069,7 @@ map <- ggplot() +
            crs = bounding$out_crs)
 
 fishwatchr::add_little_globe(map,
-                             main_box = bounding_box,
+                             main_box = bounding,
                              globe_rel_size = '0.25',
                              globe_just = 'inside',
                              globe_position = 'upperright')
@@ -1085,14 +1086,18 @@ bounding <- transform_box(xlim = c(-70, -55),
                           ylim = c(-40, -55),
                           output_crs = gfw_projections("Equal Earth")$proj)
 
+
+alpha_v <- 
+
 map_atl <- ggplot() +
   geom_gfw_land(theme = 'light', proj = gfw_projections("Equal Earth")$proj) +
   geom_sf(
     # data = daily_identity,
     #   aes(x=lon, y=lat, color = shipname_g),
         data = dplyr::select(daily_identity_points_trans,-avg_lat_lon),
-      aes( color = shipname_g),
-      size = 1.5
+      aes(color = shipname_g),
+      size = 1.5, 
+      alpha_v
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
   geom_gfw_eez(proj = gfw_projections("Equal Earth")$proj, colour='black') +
@@ -1121,8 +1126,75 @@ ggsave(here::here("outputs", "figures", "Name_group_locations_Atlantic.png"), wi
 name_change_l <- read.csv(here::here("data", ".", "name_changes_150voi_local.csv"))
 
 # map of name changes
+# create bounding box for plot to set bounds 
+bounding <- transform_box(xlim = c(-95, -30),
+                          ylim = c(0, -55),
+                          output_crs = gfw_projections("Equal Earth")$proj)
 
-# timeline of name changes
+# make st object of identity points
+name_change_points <- filter(name_change_l, !is.na(lat)) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) 
+
+# reproject identity points object 
+name_change_points_trans <- st_transform(daily_identity_points, crs=4326)
+
+# map out the data 
+ggplot() +
+  geom_gfw_land(theme = 'light', proj = gfw_projections("Equal Earth")$proj) +
+  geom_gfw_eez(proj = gfw_projections("Equal Earth")$proj, colour='black') +
+  geom_sf(
+    # data = daily_identity,
+    #   aes(x=lon, y=lat, color = shipname_g),
+        data = name_change_points_trans,
+      #aes( color = shipname_g),
+      size = 1.5,
+      alpha = 0.25
+    #color = fishwatchr::gfw_palettes$secondary[2]
+  ) +
+  #geom_gfw_eez(theme = 'light', center = new_center, alpha = 0.2) +
+  # scale_colour_manual(values = gfw_palettes$tracks) +
+  theme_gfw_map(theme = "light") +
+  theme(legend.position="right")
+  # labs(colour = 'Name Group') +
+  # coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
+  #          ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
+  #          crs = bounding$out_crs)
+
+ggsave(here::here("outputs", "figures", "name_change_locations_global.png"))
+
+
+# fishwatchr::add_little_globe(map,
+#                              main_box = bounding_box,
+#                              globe_rel_size = '0.25',
+#                              globe_just = 'inside',
+#                              globe_position = 'upperright')
+
+
+name_change_l$timestamp <- as.POSIXct(str_sub(name_change_l$timestamp,1, 19), format='%Y-%m-%d %H:%M:%S')
+name_change_l$ssvid <- as.character(name_change_l$ssvid)
+
+nrow(filter(name_change_l, timestamp <= '2022-06-01 00:00:00 GMT'))
+nrow(filter(name_change_l, timestamp >= '2022-06-01 00:00:00 GMT'))
+
+
+# plot out name changes with time plot 
+ggplot() +
+  geom_point(
+    data = name_change_l,
+    aes(
+      x = timestamp, 
+      y = ssvid
+    ),
+    size = 2
+  ) + 
+  # plot points of ssvids with only single transmissions 
+  labs(x= 'Date', y='MMSI' )+
+  theme_classic() +
+  theme(legend.position="none")
+
+ggsave(here::here("outputs", "figures", "name_change_times.png"))
 
 ```
 # Gear Changes 
