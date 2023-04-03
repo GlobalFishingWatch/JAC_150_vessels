@@ -930,6 +930,11 @@ time_plot_df2
 ```
 
 ```{r, echo=F}
+# set bouding box up 
+# bounding <- transform_box(xlim = c(-55, 100),
+#                           ylim = c(-90, 90),
+#                           output_crs = gfw_projections("Equal Earth")$proj)
+
 # set centre for global plot 
 new_center <- -80
 
@@ -959,7 +964,10 @@ ggplot() +
   # scale_colour_manual(values = gfw_palettes$tracks) +
   theme_gfw_map(theme = "light") +
   theme(legend.position="bottom") +
-  labs(colour = 'Vessel Name')
+  labs(colour = 'Vessel Name') #+
+    # coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
+    #        ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
+    #        crs = bounding$out_crs)
 
 # save output in outputs directory 
 ggsave(here::here("outputs", "figures", "LRYY715_name_map.png"), width = 10, height = 7)
@@ -1023,6 +1031,15 @@ daily_identity$shipname_g[stringr::str_detect(daily_identity$shipname, '^SHUN')]
 # check group relationships 
 table(daily_identity$shipname,daily_identity$shipname_g)
 
+# remove values that aren't in the name groups 
+daily_identity <- daily_identity %>% filter(!is.na(shipname_g))
+
+# make alpha based on proportion of values in each name group
+alpha_v <- daily_identity %>% group_by(shipname_g) %>% 
+  summarise(freq = n()) %>% mutate(prop = freq/nrow(daily_identity_points_trans))
+
+daily_identity <- left_join(daily_identity, dplyr::select(alpha_v, shipname_g, prop)) 
+
 # set plot centre 
 new_center <- -80
 
@@ -1034,18 +1051,20 @@ daily_identity$lon <- coordinates(daily_identity$pts)[c(T,F)]
 daily_identity$lat <- coordinates(daily_identity$pts)[c(F,T)]
 
 # create bounding box for plot to set bounds 
-bounding <- transform_box(xlim = c(-95, -30),
-                          ylim = c(0, -55),
+bounding <- transform_box(xlim = c(-125, -30),
+                          ylim = c(5, -55),
                           output_crs = gfw_projections("Equal Earth")$proj)
 
 # make st object of identity points
 daily_identity_points <- filter(daily_identity, !is.na(shipname_g)) %>%
+  arrange(desc(shipname_g)) %>%
   sf::st_as_sf(., 
                coords = c("lon", "lat"), 
                crs = 4326) 
 
 # reproject identity points object 
 daily_identity_points_trans <- st_transform(daily_identity_points, crs=4326)
+
 
 # map out the data 
 map <- ggplot() +
@@ -1056,7 +1075,8 @@ map <- ggplot() +
     #   aes(x=lon, y=lat, color = shipname_g),
         data = dplyr::select(daily_identity_points_trans,-avg_lat_lon),
       aes( color = shipname_g),
-      size = 1.5
+      size = 1.5, 
+      alpha = data.frame(daily_identity_points_trans)$prop
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
   #geom_gfw_eez(theme = 'light', center = new_center, alpha = 0.2) +
@@ -1075,7 +1095,7 @@ fishwatchr::add_little_globe(map,
                              globe_position = 'upperright')
 
 
-ggsave(here::here("outputs", "figures", "Name_group_locations.png"), width = 7, height = 8)
+ggsave(here::here("outputs", "figures", "Name_group_locations_squid_grounds.png"), width = 7, height = 8)
 
 ```
 Atlantic name locations 
@@ -1087,7 +1107,7 @@ bounding <- transform_box(xlim = c(-70, -55),
                           output_crs = gfw_projections("Equal Earth")$proj)
 
 
-alpha_v <- 
+
 
 map_atl <- ggplot() +
   geom_gfw_land(theme = 'light', proj = gfw_projections("Equal Earth")$proj) +
@@ -1097,7 +1117,7 @@ map_atl <- ggplot() +
         data = dplyr::select(daily_identity_points_trans,-avg_lat_lon),
       aes(color = shipname_g),
       size = 1.5, 
-      alpha_v
+      alpha = data.frame(daily_identity_points_trans)$prop
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
   geom_gfw_eez(proj = gfw_projections("Equal Earth")$proj, colour='black') +
@@ -1230,26 +1250,37 @@ tab_df <- filter(gear_df, speed<6) %>%
         mutate(prop = transmissions / region_ttl) 
 
 # make bar plot for Pacific with bars per mmsi 
-ggplot() +
+p1 <- ggplot() +
   geom_bar(data=filter(tab_df, region=='Pacific'), 
                  aes(x=speed_bin, y=prop, fill=ssvid), 
                  position=position_dodge(), stat='identity')+
-  labs(x='Speed knots', y='Proportion') +
+  scale_fill_manual(values=gfw_palette('diverging')) +
+  labs(x='Speed knots', y='Proportion', fill='MMSI', title='Pacific') +
+  ylim(0,1)+
   theme_classic()
 
 # save output 
-ggsave(here::here("outputs", "figures", "Pacific_speed.png"))
+#ggsave(here::here("outputs", "figures", "Pacific_speed.png"))
 
 # make bar plot for Atlantic with bars per mmsi 
-ggplot() +
+p2 <- ggplot() +
   geom_bar(data=filter(tab_df, region=='Atlantic'), 
                  aes(x=speed_bin, y=prop, fill=ssvid), 
                  position=position_dodge(), stat='identity')+
-  labs(x='Speed knots', y='Proportion') +
+  scale_fill_manual(values=gfw_palette('diverging')) +
+  labs(x='Speed knots', y='Proportion', fill='MMSI', title='Atlantic') +
+  ylim(0,1)+
   theme_classic()
 
+
+install.packages('patchwork')
+library('patchwork')
+
+combined <- p1 + p2 + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+combined
 # save outputs
-ggsave(here::here("outputs", "figures", "Atlantic_speed.png"))
+ggsave(here::here("outputs", "figures", "Pacific_Atlantic_speed.png"))
 ```
 
 
@@ -1267,6 +1298,23 @@ View(filter(name_change %>% filter(ssvid %in% c('150402951','150402949','1504029
 ```{r, echo=FALSE}
 # Need to add class B element 
 
+head(all_150_ais)
+head(working_df)
+
+voi_that_transmit <- c('150402944', '150400453', '150402940', '150402947', '150402949', '150402951', 
+                       '150403003', '150400465', '150400483', '150403000', '150400467')
+
+table(working_df$type)
+working_df$class <- NA
+working_df$class[working_df$type %in% c('AIS.1', 'AIS.3')] <- 'A'
+working_df$class[working_df$type %in% c('AIS.18', 'AIS.19')] <- 'B'
+working_df$class[working_df$type %in% c( 'AIS.4', 'AIS.9', 'AIS.17', 'AIS.11')] <- 'OTH'
+
+class_df <- filter(working_df, ssvid %in% voi_that_transmit) %>% group_by(ssvid, year, month, class) %>% summarise(n=n())
+
+filter(working_df, ssvid %in% voi_that_transmit) %>% group_by(ssvid, class) %>% summarise(n=n())
+
+View(class_df)
 ```
 
 

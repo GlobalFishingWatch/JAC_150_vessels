@@ -216,3 +216,37 @@ map <- ggplot() +
   coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
            ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
            crs = bounding$out_crs)
+
+
+#-------------------------------------------------------------------------------
+# spoofing query
+# SELECT
+# *
+#   FROM
+# `world-fishing-827.gfw_research_precursors.offsetting_year_seg_v20230126`
+# WHERE
+# ssvid IN (SELECT CAST(ssvid AS string) FROM `world-fishing-827.scratch_max.150_voi_ssvid`)
+# OR ssvid IN ('412331285', '412420574', '412334074', '412420659','412440717', '412440716', '412336962', '412331283',
+#              '412331285', '412331284', '412331282', '412331281', '412331279')
+# AND year IN (2020, 2021, 2022)
+
+
+# -----------------------------------------------------------------------------
+# implausible speed query
+#
+# WITH implausible_speeds AS(
+#   SELECT
+#   *
+#     FROM `world-fishing-827.pipe_production_v20201001.research_messages`
+#   WHERE
+#   DATE(_partitiontime) BETWEEN "2020-01-01" AND "2022-12-31"
+#   AND implied_speed_knots > 20
+# )
+#
+# SELECT
+# * EXCEPT (regions)
+# FROM implausible_speeds
+# WHERE
+# ssvid IN (SELECT CAST(ssvid AS string) FROM `world-fishing-827.scratch_max.150_voi_ssvid`)
+# OR ssvid IN ('412331285', '412420574', '412334074', '412420659','412440717', '412440716', '412336962', '412331283',
+#              '412331285', '412331284', '412331282', '412331281', '412331279')
