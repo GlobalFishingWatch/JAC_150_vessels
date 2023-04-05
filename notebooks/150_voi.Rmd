@@ -442,12 +442,18 @@ Map
 working_df$lat_bin <- round(working_df$lat/0.5)*0.5
 working_df$lon_bin <- round(working_df$lon/0.5)*0.5
 
+mmsi_list <- read.csv(here::here("data", ".", "MMSIs of interest.csv"), header=F)
+
 # count positions in each lat lon bin
 presence <- working_df %>%
+# filter to final mmsi list
+  filter(ssvid %in% mmsi_list$V1) %>% 
   group_by(lat_bin, lon_bin) %>%
     summarise(
       positions = dplyr::n(), 
     )
+
+table(is.na(presence$positions))
 
 # set upper limit
 up_lim <- 5000 
@@ -918,6 +924,12 @@ df$grp[df$grp %in% grp_tab$grp[grp_tab$n==1]] <- df$grp[df$grp %in% grp_tab$grp[
 # adjust change point 2 to go into group 3 
 df$grp[df$grp == 2] <- df$grp[df$grp == 2]+1 
 
+df$region <- 'Pacific or Transit'
+#df$region[between(df$lon, -120, -72) & between(df$lat, -60, 0)] <- 'Pacific or Transit'
+df$region[between(df$lon, -61, -50) & between(df$lat, -49, -37)] <- 'Atlantic'
+
+table(df$region)
+
 # make segments based on change points        
 time_plot_df2 <- df %>% group_by(shipname, grp) %>% summarise(
   first_trans = min(timestamp), 
@@ -926,6 +938,14 @@ time_plot_df2 <- df %>% group_by(shipname, grp) %>% summarise(
 )
 time_plot_df2
 # note need to break the data into groups by continuous transmission on MMSI 
+
+# make segments based on change points        
+time_plot_df3 <- df %>% group_by(region, shipname, grp) %>% summarise(
+  first_trans = min(timestamp), 
+  last_trans = max(timestamp),
+  n=n()
+)
+time_plot_df3
 
 ```
 
@@ -976,23 +996,29 @@ ggsave(here::here("outputs", "figures", "LRYY715_name_map.png"), width = 10, hei
 ```{r, echo=F}
 # time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
 
+# open up shipname by one day to be visible on plot 
+time_plot_df2$last_trans[time_plot_df2$shipname == 'LURONGYUANYU 581']
+# "2021-02-17 18:06:00 GMT"
+time_plot_df2$last_trans[time_plot_df2$shipname == 'LURONGYUANYU 581'] <- "2021-02-18 18:06:00 GMT"
+time_plot_df3$last_trans[time_plot_df3$shipname == 'LURONGYUANYU 581'] <- "2021-02-18 18:06:00 GMT"
+
 # make timeline plot of name changes 
 ggplot() +
   geom_segment(
-    data = time_plot_df2,
+    data = time_plot_df3,
     aes(
       x = first_trans,
       xend = last_trans,
       # y = ssvid,
       # yend = ssvid,      
-      y = shipname,
-      yend = shipname,
+      y = region,
+      yend = region,
       colour = shipname
     ),
     size = 2
   ) + 
   # geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
-  labs(x= 'Date', y='Vessel Name' )+
+  labs(x= 'Date', y='Vessel Name', colour='Vessel Name' )+
   #   scale_x_date("",
   #   date_minor_breaks = "months",
   #   date_breaks = "year",
@@ -1001,16 +1027,16 @@ ggplot() +
   #   expand = c(0, 0)
   # )
   theme_classic() +
-  theme(legend.position="none")
+  theme(legend.position="bottom")
 
 # save outputs 
-ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10, height = 7)
+ggsave(here::here("outputs", "figures", "LRYY715_timeline_map_v3.png"), width = 10, height = 7)
   
 ```
 
-# Name Locations 
 
-```{r, echo=F, warning=FALSE}
+
+```{r, echo=F}
 
 # query to get best name on a day
 ais_identity_q <- readr::read_file(file = here::here("queries", ".", "ais_identity_changes_v2.sql"))
@@ -1019,6 +1045,158 @@ ais_identity_q <- readr::read_file(file = here::here("queries", ".", "ais_identi
 daily_identity <- fishwatchr::gfw_query(query = ais_identity_q,
                                  run_query = TRUE,
                                  con = con)$data
+
+# check data completeness 
+daily_identity %>% filter(ssvid == '150400453') %>% group_by(shipname) %>% summarise(first = min(day), last =max(day))
+
+# restrict to voi
+voi_lryy <- daily_identity %>% filter(ssvid == '150400453')
+
+# pull out names to normalise
+table(voi_lryy$shipname)
+
+# normalise shipname 
+voi_lryy$shipname[voi_lryy$shipname=='HAHHHING 3'] <- 'HAI HANG 3'
+voi_lryy$shipname[voi_lryy$shipname=='HAIHANG3'] <- 'HAI HANG 3'
+voi_lryy$shipname[voi_lryy$shipname=='LURONGYUANYU715'] <- 'LURONGYUANYU 715'
+voi_lryy$shipname[voi_lryy$shipname=='HAI HANG 3    XX'] <- 'HAI HANG 3'
+voi_lryy$shipname[voi_lryy$shipname=='FUYUANYU 715  XX'] <- 'FUYUANYU 715'
+voi_lryy$shipname[voi_lryy$shipname=='FUXHHNYU 715'] <- 'FUYUANYU 715'
+voi_lryy$shipname[voi_lryy$shipname=='FUXHHNYU9995'] <- 'FUYUANYU9995'
+
+table(voi_lryy$shipname)
+
+ # add diff time column 
+voi_lryy <- voi_lryy %>% group_by(ssvid, shipname) %>% mutate(gap_days = difftime(day, lag(day), units=c('days')))
+
+# make gap segments logical column
+voi_lryy$seg <- FALSE
+voi_lryy$seg[voi_lryy$gap_days<5] <- TRUE
+
+
+# identify group change points based on segment differences - bit of a hack but it works 
+j=1
+i=1
+voi_lryy$grp <- NA
+for (i in 2:nrow(voi_lryy)){
+  if(voi_lryy$seg[i] != voi_lryy$seg[i-1]){
+    voi_lryy$grp[i] <- j+1
+    j = j+1 
+    } else {voi_lryy$grp[i] = j}
+}
+# manually set group point 1
+voi_lryy$grp[1] <- 1
+
+# change points to vessel names currently go into their own group (due to difference in true false) - change this to the next group  
+grp_tab2 <- voi_lryy %>% group_by(grp) %>% summarise(n=n())
+grp_tab2$grp[grp_tab2$n==1]
+voi_lryy$grp[voi_lryy$grp %in% grp_tab2$grp[grp_tab2$n==1]] <- voi_lryy$grp[voi_lryy$grp %in% grp_tab2$grp[grp_tab2$n==1]] +1
+
+# adjust change point 2 to go into group 3 
+voi_lryy$grp[voi_lryy$grp == 2] <- voi_lryy$grp[voi_lryy$grp == 2]+1 
+
+voi_lryy$region <- 'Pacific or Transit'
+voi_lryy$region[between(voi_lryy$lon, -61, -50) & between(voi_lryy$lat, -49, -37)] <- 'Atlantic'
+
+table(voi_lryy$region)
+
+# make segments based on change points        
+time_plot_df4 <- voi_lryy %>% group_by(region, shipname, grp) %>% summarise(
+  first_trans = min(day), 
+  last_trans = max(day),
+  n=n()
+)
+time_plot_df4
+
+# make at least 1 day window for visibility 
+time_plot_df4$last_trans[time_plot_df4$shipname == 'LURONGYUANYU 581'] <- "2021-02-18"
+
+# make timeline plot of name changes 
+ggplot() +
+  geom_segment(
+    data = time_plot_df4,
+    aes(
+      x = first_trans,
+      xend = last_trans,
+      # y = ssvid,
+      # yend = ssvid,      
+      y = region,
+      yend = region,
+      colour = shipname
+    ),
+    size = 2
+  ) + 
+  # geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
+  labs(x= 'Date', y='Vessel Name', colour='Vessel Name' )+
+  #   scale_x_date("",
+  #   date_minor_breaks = "months",
+  #   date_breaks = "year",
+  #   date_labels = "%Y",
+  #   limits = c(as.Date("2020-01-01"), as.Date("2022-12-31")),
+  #   expand = c(0, 0)
+  # )
+  theme_classic() +
+  theme(legend.position="bottom")
+
+ggsave(here::here("outputs", "figures", "LRYY715_timeline_map_v4.png"), width = 10, height = 7)
+
+# add centre 
+new_center <- -80
+
+
+# can't make segs for groups with less than 2 points
+drop <- voi_lryy %>% group_by(grp) %>% summarise(n=n()) %>% filter(n<2)
+seg_df <- voi_lryy %>% filter(!grp %in% c(drop$grp))
+
+# only one point for LURONGYUANYU 581 drop out 
+seg_df %>% group_by(grp, shipname) %>% summarise(n=n())
+
+seg_df <- seg_df %>% filter(shipname != 'LURONGYUANYU 581')
+
+# make the recentered plot df 
+recenter_lryy715_v2 <- seg_df %>%
+  filter(!is.na(lat)) %>%
+  dplyr::select(shipname, grp, lat, lon, day) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) %>%
+  group_by(grp, shipname) %>%
+  arrange(day) %>%
+  summarize(do_union = FALSE) %>%
+  sf::st_cast(., "LINESTRING") %>%
+  fishwatchr::recenter_sf(., center = new_center, buffer=0)
+
+# make name pattern coloured map 
+ggplot() +
+  geom_gfw_outline(center = new_center, 
+                   theme = "dark") +
+  geom_gfw_land(center = new_center) +
+  geom_sf(
+    data = recenter_lryy715_v2,
+      aes(color = shipname) #, 
+    #color = fishwatchr::gfw_palettes$secondary[2]
+  ) +
+  geom_gfw_eez(theme = 'dark', center = new_center, alpha = 0.30) +
+  # scale_colour_manual(values = gfw_palettes$tracks) +
+  theme_gfw_map(theme = "light") +
+  theme(legend.position="bottom") +
+  labs(colour = 'Vessel Name') #+
+    # coord_sf(xlim = c(bounding$box_out[['xmin']], bounding$box_out[['xmax']]),
+    #        ylim = c(bounding$box_out[['ymin']], bounding$box_out[['ymax']]),
+    #        crs = bounding$out_crs)
+
+# save output in outputs directory 
+ggsave(here::here("outputs", "figures", "LRYY715_name_map_v2.png"), width = 10, height = 7)
+
+
+
+
+```
+
+# Name Locations 
+
+```{r, echo=F, warning=FALSE}
+
 
 # make normalised name groups 
 daily_identity$shipname_g <- NA
@@ -1036,7 +1214,7 @@ daily_identity <- daily_identity %>% filter(!is.na(shipname_g))
 
 # make alpha based on proportion of values in each name group
 alpha_v <- daily_identity %>% group_by(shipname_g) %>% 
-  summarise(freq = n()) %>% mutate(prop = freq/nrow(daily_identity_points_trans))
+  summarise(freq = n()) %>% mutate(prop = freq/nrow(daily_identity))
 
 daily_identity <- left_join(daily_identity, dplyr::select(alpha_v, shipname_g, prop)) 
 
@@ -1137,7 +1315,101 @@ fishwatchr::add_little_globe(map_atl,
 
 ggsave(here::here("outputs", "figures", "Name_group_locations_Atlantic.png"), width = 7, height = 8)
 ```
+```{r, echo=F, warning=F}
+daily_identity$region <- 'Other'
+daily_identity$region[between(daily_identity$lon, -120, -72) & between(daily_identity$lat, -60, 0)] <- 'Pacific'
+daily_identity$region[between(daily_identity$lon, -61, -50) & between(daily_identity$lat, -49, -37)] <- 'Atlantic'
 
+
+daily_identity
+
+
+# df <- df %>% group_by(ssvid, shipname) %>% mutate(gap_days = difftime(timestamp, lag(timestamp), units=c('days')))
+# 
+# # make gap segments logical column
+# df$seg <- FALSE
+# df$seg[df$gap_days<5] <- TRUE
+# 
+# 
+# # identify group change points based on segment differences - bit of a hack but it works 
+# j=1
+# i=1
+# df$grp <- NA
+# for (i in 2:nrow(df)){
+#   if(df$seg[i] != df$seg[i-1]){
+#     df$grp[i] <- j+1
+#     j = j+1 
+#     } else {df$grp[i] = j}
+# }
+# # manually set group point 1
+# df$grp[1] <- 1
+# 
+# # change points to vessel names currently go into their own group (due to difference in true false) - change this to the next group  
+# grp_tab <- df %>% group_by(grp) %>% summarise(n=n())
+# grp_tab$grp[grp_tab$n==1]
+# df$grp[df$grp %in% grp_tab$grp[grp_tab$n==1]] <- df$grp[df$grp %in% grp_tab$grp[grp_tab$n==1]] +1
+# 
+# # adjust change point 2 to go into group 3 
+# df$grp[df$grp == 2] <- df$grp[df$grp == 2]+1 
+# 
+# # make segments based on change points        
+# time_plot_df2 <- df %>% group_by(shipname, grp) %>% summarise(
+#   first_trans = min(timestamp), 
+#   last_trans = max(timestamp),
+#   n=n()
+# )
+# time_plot_df2
+
+
+# # plot out name changes with time plot 
+# ggplot() +
+#   geom_point(
+#     data = name_change_l,
+#     aes(
+#       x = timestamp, 
+#       y = ssvid
+#     ),
+#     size = 2
+#   ) + 
+#   # plot points of ssvids with only single transmissions 
+#   labs(x= 'Date', y='MMSI' )+
+#   theme_classic() +
+#   theme(legend.position="none")
+
+time_plot_df <- daily_identity %>% group_by(region, shipname) %>% summarise(
+  first_trans = min(day), 
+  last_trans = max(day),
+  n=n()
+)
+
+# make the individual periods of 150400453 in the same group for time plot 
+time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
+
+# plot out name changes with time plot 
+ggplot() +
+  geom_segment(
+    data = time_plot_df,
+    aes(
+      x = first_trans,
+      xend = last_trans,
+      # y = ssvid,
+      # yend = ssvid,      
+      y = group,
+      yend = group,
+      colour = group
+    ),
+    size = 2
+  ) + 
+  # plot points of ssvids with only single transmissions 
+  geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
+  labs(x= 'date', y='MMSI' )+
+  theme_classic() +
+  theme(legend.position="none")
+
+
+ggsave(here::here("outputs", "figures", "name_change_times.png"))
+
+```
 
 ```{r, echo=F, warning=F}
 # import name_change_l derived from ais_identity_changes_v1.sql WHERE next_name != static_name.  
@@ -1273,8 +1545,7 @@ p2 <- ggplot() +
   theme_classic()
 
 
-install.packages('patchwork')
-library('patchwork')
+
 
 combined <- p1 + p2 + plot_layout(guides = "collect") & theme(legend.position = "bottom")
 
@@ -1317,5 +1588,53 @@ filter(working_df, ssvid %in% voi_that_transmit) %>% group_by(ssvid, class) %>% 
 View(class_df)
 ```
 
+```{r, echo=FALSE}
+# read in annex tables 
+annex1 <- read.csv(here::here("data", ".", "150_voi_annex_table1_input.csv"))
+annex2 <- read.csv(here::here("data", ".", "150_voi_annex_table2_input.csv"))
+
+#annex1
+#annex1$mmsi <- apply(df1[-1], 1, function(x) toString(names(x)[x == 1]))
+
+# drop extra columns 
+annex1_m <- annex1 %>% dplyr::select(-Known.Chinese.vessel, -imo, -Unknown.Chinese.vessel,
+                  -Non.Chinese.vessel.name, -Owner, -MMSI.count)
+
+# remove leading X
+colnames(annex1_m)[-1] <- sub('.', '', colnames(annex1_m)[-1])
+
+# add colnames to string where true 
+test <- annex1_m %>% 
+   pivot_longer(cols = -vessel_name) %>% 
+   group_by(vessel_name) %>% 
+   summarise(mmsi = toString(name[as.logical(value)])) #%>% 
+   #right_join(annex1_m) %>%
+   #select(names(annex1_m), everything())
+
+# add interesting columns 
+plot_df <-  left_join(test[-1,], dplyr::select(annex1, vessel_name, Owner, imo))
+
+# write out annex table 1
+write.csv(dplyr::select(plot_df, vessel_name, imo, Owner, mmsi), here::here("data", ".", "150_voi_annex_t1_formated.csv"))
+
+
+# drop extra columns 
+annex2_m <- annex2 %>% dplyr::select(-Transmissions, -Name.count)
+
+# add colnames to string where true 
+test2 <- annex2_m %>% 
+   pivot_longer(cols = -ssvid) %>% 
+   group_by(ssvid) %>% 
+   summarise(mmsi = toString(name[as.logical(value)])) #%>% 
+   #right_join(annex1_m) %>%
+   #select(names(annex1_m), everything())
+
+# write out annex table 1
+write.csv(test2, here::here("data", ".", "150_voi_annex_t2_formated.csv"))
+
+
+
+
+```
 
 
