@@ -1002,6 +1002,7 @@ time_plot_df2$last_trans[time_plot_df2$shipname == 'LURONGYUANYU 581']
 time_plot_df2$last_trans[time_plot_df2$shipname == 'LURONGYUANYU 581'] <- "2021-02-18 18:06:00 GMT"
 time_plot_df3$last_trans[time_plot_df3$shipname == 'LURONGYUANYU 581'] <- "2021-02-18 18:06:00 GMT"
 
+
 # make timeline plot of name changes 
 ggplot() +
   geom_segment(
@@ -1111,21 +1112,37 @@ time_plot_df4
 # make at least 1 day window for visibility 
 time_plot_df4$last_trans[time_plot_df4$shipname == 'LURONGYUANYU 581'] <- "2021-02-18"
 
+# hack for two missing rows into the plot evident in EE data  
+add_row <- time_plot_df3[11,]
+add_row$grp <- 25
+add_row$first_trans <- as.POSIXct('2020-07-15 00:00:00')         
+add_row$last_trans <- as.POSIXct('2021-01-01 00:00:00')         
+
+add_row2 <- time_plot_df4[27,]
+add_row2$grp <- 15
+add_row2$first_trans <- as.POSIXct('2020-07-14 20:30:00')         
+add_row2$last_trans <- as.POSIXct('2020-07-15 00:00:00')         
+
+
+
+time_plot_df5 <- bind_rows(time_plot_df4, add_row, add_row2)
+
+
+
 # make timeline plot of name changes 
 ggplot() +
   geom_segment(
-    data = time_plot_df4,
+    data = time_plot_df5,
     aes(
       x = first_trans,
       xend = last_trans,
-      # y = ssvid,
-      # yend = ssvid,      
       y = region,
       yend = region,
       colour = shipname
     ),
     size = 2
   ) + 
+  #scale_colour_manual(values = gfw_palettes$tracks) +
   # geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
   labs(x= 'Date', y='Vessel Name', colour='Vessel Name' )+
   #   scale_x_date("",
@@ -1138,8 +1155,10 @@ ggplot() +
   theme_classic() +
   theme(legend.position="bottom")
 
-ggsave(here::here("outputs", "figures", "LRYY715_timeline_map_v4.png"), width = 10, height = 7)
+ggsave(here::here("outputs", "figures", "LRYY715_timeline_map_v6.png"), width = 10, height = 7)
+```
 
+```{r, echo=F}
 # add centre 
 new_center <- -80
 
@@ -1177,7 +1196,6 @@ ggplot() +
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
   geom_gfw_eez(theme = 'dark', center = new_center, alpha = 0.30) +
-  # scale_colour_manual(values = gfw_palettes$tracks) +
   theme_gfw_map(theme = "light") +
   theme(legend.position="bottom") +
   labs(colour = 'Vessel Name') #+
@@ -1590,11 +1608,9 @@ View(class_df)
 
 ```{r, echo=FALSE}
 # read in annex tables 
+# sourced from https://docs.google.com/spreadsheets/d/1B4zpKF9RKlvmRZU4EMTsJnqcA4PBhUtg/edit?usp=sharing&ouid=101477854774495795304&rtpof=true&sd=true tabs Names2 & Names3
 annex1 <- read.csv(here::here("data", ".", "150_voi_annex_table1_input.csv"))
 annex2 <- read.csv(here::here("data", ".", "150_voi_annex_table2_input.csv"))
-
-#annex1
-#annex1$mmsi <- apply(df1[-1], 1, function(x) toString(names(x)[x == 1]))
 
 # drop extra columns 
 annex1_m <- annex1 %>% dplyr::select(-Known.Chinese.vessel, -imo, -Unknown.Chinese.vessel,
