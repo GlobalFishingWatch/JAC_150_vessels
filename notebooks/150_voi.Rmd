@@ -525,7 +525,7 @@ pacific_map <- presence %>%
   ggplot()+
   geom_gfw_outline(center = new_center, theme = "dark") +
   geom_raster(aes(x= lon_bin, y=lat_bin, fill = positions)) +
-    geom_gfw_eez(theme = 'dark', alpha = 0.2, center = new_center) +
+    geom_gfw_eez(theme = 'dark', alpha = 0.4, center = new_center) +
     geom_gfw_land(theme = 'dark', center = new_center) +
     scale_fill_gradientn(colors = gfw_palette('map_effort_dark'),
                        limits = c(0,up_lim),
@@ -545,16 +545,16 @@ fishwatchr::add_little_globe(pacific_map,
                              globe_position = 'upperright')  
   
   
-ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_pacific_dark.png"))
+ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_pacific_dark.png"), width = 6, height = 8)
 
 ```
 
-Pacific Map - note not currently working to transform raster to Pacific view 
+Atlantic Map - note not currently working to transform raster to Pacific view 
 
 ```{r, echo=FALSE, warning=F}
 
 # lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
-res <- 0.1
+res <- 0.5
 working_df$lat_bin <- round(working_df$lat / res) * res
 working_df$lon_bin <- round(working_df$lon / res) * res
 
@@ -588,7 +588,7 @@ atlantic_map <- presence %>%
   ggplot()+
   geom_gfw_outline(center = new_center, theme = "dark") +
   geom_raster(aes(x= lon_bin, y=lat_bin, fill = positions)) +
-    geom_gfw_eez(theme = 'dark', alpha = 0.2, center = new_center) +
+    geom_gfw_eez(theme = 'dark', alpha = 0.4, center = new_center) +
     geom_gfw_land(theme = 'dark', center = new_center) +
     scale_fill_gradientn(colors = gfw_palette('map_effort_dark'),
                        #limits = c(0,up_lim),
@@ -597,6 +597,7 @@ atlantic_map <- presence %>%
     coord_sf(xlim = c(bounding_atlantic$box_out[['xmin']], bounding_atlantic$box_out[['xmax']]),
            ylim = c(bounding_atlantic$box_out[['ymin']], bounding_atlantic$box_out[['ymax']]),
            crs = bounding_atlantic$out_crs) +
+      labs(fill = 'AIS Positions') +
       theme_gfw_map(theme = 'light') 
 
 
@@ -607,7 +608,70 @@ fishwatchr::add_little_globe(atlantic_map,
                              globe_position = 'upperleft')  
   
   
-ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_atlantic_dark.png"))
+ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_atlantic_dark.png"), width = 6, height = 8)
+
+```
+
+North Pacifc Map  
+
+```{r, echo=FALSE, warning=F}
+
+# lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
+res <- 0.5
+working_df$lat_bin <- round(working_df$lat / res) * res
+working_df$lon_bin <- round(working_df$lon / res) * res
+
+# count positions in each lat lon bin
+presence <- working_df %>%
+  group_by(lat_bin, lon_bin) %>%
+    summarise(
+      positions = dplyr::n(), 
+    )
+
+# set upper limit
+up_lim <- 10000 
+#set plot center 
+new_center <- -60
+
+# set proj for bounding box
+best_proj <- "+proj=eqearth +lon_0=-60 +wktext"
+
+# set plot limits for Pacific 
+bounding_atlantic <- transform_box(xlim = c(-70, -50),
+                          ylim = c(-35, -55),
+                          output_crs = best_proj)
+  
+atlantic_map <- presence %>%
+  recenter_raster(raster_df = .,
+                  res = 1,
+                  x_lab = 'lon_bin',
+                  y_lab = 'lat_bin',
+                  fill_lab = 'positions',
+                  center = new_center) %>% 
+  ggplot()+
+  geom_gfw_outline(center = new_center, theme = "dark") +
+  geom_raster(aes(x= lon_bin, y=lat_bin, fill = positions)) +
+    geom_gfw_eez(theme = 'dark', alpha = 0.4, center = new_center) +
+    geom_gfw_land(theme = 'dark', center = new_center) +
+    scale_fill_gradientn(colors = gfw_palette('map_effort_dark'),
+                       #limits = c(0,up_lim),
+                       oob = scales::squish,
+                       na.value = NA) +   
+    coord_sf(xlim = c(bounding_atlantic$box_out[['xmin']], bounding_atlantic$box_out[['xmax']]),
+           ylim = c(bounding_atlantic$box_out[['ymin']], bounding_atlantic$box_out[['ymax']]),
+           crs = bounding_atlantic$out_crs) +
+      labs(fill = 'AIS Positions') +
+      theme_gfw_map(theme = 'light') 
+
+
+fishwatchr::add_little_globe(atlantic_map,
+                             main_box = bounding_atlantic,
+                             globe_rel_size = '0.25',
+                             globe_just = 'inside',
+                             globe_position = 'upperleft')  
+  
+  
+ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_atlantic_dark.png"), width = 6, height = 8)
 
 ```
 
@@ -1113,7 +1177,7 @@ time_plot_df4
 time_plot_df4$last_trans[time_plot_df4$shipname == 'LURONGYUANYU 581'] <- "2021-02-18"
 
 # hack for two missing rows into the plot evident in EE data  
-add_row <- time_plot_df3[11,]
+add_row <- time_plot_df4[11,]
 add_row$grp <- 25
 add_row$first_trans <- as.POSIXct('2020-07-15 00:00:00')         
 add_row$last_trans <- as.POSIXct('2021-01-01 00:00:00')         
@@ -1654,3 +1718,33 @@ write.csv(test2, here::here("data", ".", "150_voi_annex_t2_formated.csv"))
 ```
 
 
+```{r, echo=F}
+
+# # query to get best name on a day
+# q_top_six <- readr::read_file(file = here::here("queries", ".", "investigate_a_b.sql"))
+# 
+# # extract data 
+# data_a_b <- fishwatchr::gfw_query(query = q_top_six,
+#                                  run_query = TRUE,
+#                                  con = con)$data
+# 
+# data_a_b %>% saveRDS(here::here("data", ".", "top_6_ab_2023.rds"))
+
+data_a_b <- read_rds(here::here("data", ".", "top_6_ab_2023.rds"))
+
+table(data_a_b$AIS_class, data_a_b$ssvid)
+
+# seperate class A and class B
+data_150402944_a <- data_a_b %>% filter(ssvid == '150402944', AIS_class == 'A')
+data_150402944_b <- data_a_b %>% filter(ssvid == '150402944', AIS_class == 'B')
+write.csv(data_150402944_a, here::here("data", ".", "150402944_a_2023.csv"))
+write.csv(data_150402944_b, here::here("data", ".", "150402944_b_2023.csv"))
+
+
+# seperate class A and class B
+data_150400453_a <- data_a_b %>% filter(ssvid == '150400453', AIS_class == 'A')
+data_150400453_b <- data_a_b %>% filter(ssvid == '150400453', AIS_class == 'B')
+write.csv(data_150400453_a, here::here("data", ".", "150400453_a_2023.csv"))
+write.csv(data_150400453_a, here::here("data", ".", "150400453_b_2023.csv"))
+
+```
