@@ -32,8 +32,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Load R packages 
 
-```{r load packages}
-foo <- function(x){
+```{r load packages, echo=F, warning=F}
+load_or_install_libraries <- function(x){
   for( i in x ){
     #  require returns TRUE invisibly if it was able to load package
     if( ! require( i , character.only = TRUE ) ){
@@ -46,7 +46,7 @@ foo <- function(x){
 }
 
 #  Then try/install packages...
-foo( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here", "sf", "extrafont", "patchwork", "terra", "rgeos") )
+load_or_install_libraries( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here", "sf", "extrafont", "patchwork", "terra", "rgeos") )
 
 # get fishwatch r independently 
 if (!require("fishwatchr")) {devtools::install_github("GlobalFishingWatch/fishwatchr")}
@@ -69,7 +69,7 @@ extrafont::font_import()
 
 Establish connection to BigQuery project
 
-```{r con}
+```{r connection to BQ}
 con <- DBI::dbConnect(drv = bigrquery::bigquery(), 
                       project = "world-fishing-827", 
                       use_legacy_sql = FALSE)
@@ -77,7 +77,7 @@ con <- DBI::dbConnect(drv = bigrquery::bigquery(),
 
 Set commonly used parameters for mapping
 
-```{r}
+```{r define projection}
 # define bounding box/area of interest
 # bbox <- data.frame(x_min = -8,
 #                    x_max = 3,
@@ -95,7 +95,7 @@ Calling the table directly as it is saved due to being a large query
 
 First question is establish how many vessels have the 150 MMSI prefix in total. 
 
-```{r, echo=FALSE}
+```{r load in raw 150 fleet AIS data, echo=FALSE}
 # q_voi_ais <- c("SELECT * FROM `world-fishing-827.scratch_max.raw_AIS_150_mmsi_prefix_2020_2022`")
 # 
 # all_150_ais <- fishwatchr::gfw_query(query = q_voi_ais,
@@ -114,7 +114,7 @@ This is querying the raw AIS data and there is `r n_distinct(voi_ais$ssvid)` ves
 
 Chunk trys to identify gear and has code to write out gear datasets (hashed as these are large dfs!)
 
-```{r, echo=FALSE}
+```{r remove fishing gear from 150 vessel list, echo=FALSE}
 # outside china gets all 150 vessels AIS outside of China 
 #outside_chn <- readr::read_file(file = here::here("queries", ".", "outside_CHN.sql"))
 #outside_chn_ais<- fishwatchr::gfw_query(query = outside_chn,
@@ -186,7 +186,7 @@ The code also looks at setting a limit on minimum number of points outside of Ch
 to try and remove vessels active in the Chinese EEZ with a number of positional 
 anomalies outside of this location. 
 
-```{r, echo=FALSE}
+```{r remove activity exclusively in China, echo=FALSE}
 
 # still lots of CHN transmissions. Drop them with a lat/lon subset to make sure we don't still have
 # exclusively chinese vessels 
@@ -241,6 +241,10 @@ more_then10_int <- look %>% group_by(ssvid) %>% summarise(n=n()) %>% filter(n>10
 # create new working df with vessels with >10 transmissions not thought to be gear 
 working_df <- filter(data, ssvid %in% more_then10_int$ssvid)
 
+# add year and month cols 
+working_df$year  <- year(working_df$timestamp) 
+working_df$month  <- month(working_df$timestamp) 
+
 # look to see is 15040 is the vessel of interest 
 table(filter(data, str_detect(ssvid, "^15040"))$shipname)
 table(working_df$shipname)
@@ -283,128 +287,9 @@ in our vessels of interest.
 
 Further filtering was conducted on vessels with less than 10 AIS transmissions between 2021 and 2022 which removed `r n_distinct(outside_AIS$ssvid) - n_distinct(more_then10$ssvid)` vessel from the analysis fleet leaving `n_distinct(more_then10$ssvid)` vessels. 
 
-# Patterns in remaining vessel names  
-
-```{r, echo=FALSE}
-# investigate patterns in shipnames 
-#ssvids <- working_df %>% filter(str_detect(shipname, '20'))
-#View(working_df %>% filter(ssvid %in% unique(ssvids$ssvid)) %>% group_by(ssvid) %>% summarise(names=paste(unique(shipname), collapse=" ")))
-
-# test voi field 
-paste0("('",paste(unique(working_df$ssvid), collapse="','"), "')")
-
-# query to investigate identity data from vi_ssvid table 
-voi_identity_q <- c("
-  SELECT 
-    ssvid, 
-    ais_identity.n_shipname_mostcommon.value AS best_shipname_AIS,
-    ais_identity.n_callsign_mostcommon.value AS best_callsign_AIS,
-    ais_identity.n_imo_mostcommon.value AS best_imo_AIS,
-    registry_info.best_known_shipname, 
-    registry_info.best_known_callsign,
-    registry_info.best_known_imo,
-    registry_info.best_known_flag,
-    registry_info.best_known_vessel_class,
-    best.best_flag, 
-    best.best_vessel_class, 
-    on_fishing_list_known, 
-    on_fishing_list_nn
-  FROM `gfw_research.vi_ssvid_v20230101`
-  WHERE   
-  ssvid IN {voi}
-  ")
-
-# run query for specified voi - in this case the whole working df 
-voi_identity <- fishwatchr::gfw_query(query = glue::glue(voi_identity_q,
-                                               voi = paste0("('",paste(unique(working_df$ssvid), collapse="','"), "')")),
-                                 run_query = TRUE,
-                                 con = con)$data
-
-View(voi_identity)
-
-# explore individual mmsis
-table(filter(working_df, ssvid == '412331282')$shipname)
-table(filter(working_df, str_detect(shipname, 'SHUN HANG 6'))$ssvid)
-table(filter(working_df, str_detect(shipname, 'SHUN'))$shipname)
-
-# look at the frequency of different shipname usage 
-voi_gfw_names_q <- c("
-  SELECT 
-    ssvid, 
-    shipname.count AS frequency, 
-    shipname.value AS shipname
-  FROM `gfw_research.vi_ssvid_v20230101`
-  LEFT JOIN UNNEST(ais_identity.shipname) AS shipname
-  WHERE   
-  ssvid IN {voi}
-  ")
-
-voi_names <- fishwatchr::gfw_query(query = glue::glue(voi_gfw_names_q,
-                                               voi = paste0("('",paste(unique(working_df$ssvid), collapse="','"), "')")),
-                                 run_query = TRUE,
-                                 con = con)$data
-getwd()
-#write.csv(voi_identity, "../data/150_voi_names_frequency.csv")
-  
-```
-
-
-```{r, echo=FALSE}
-# look at the prevelance of using multiple names 
-names_df <- focal %>% group_by(ssvid) %>% summarise(names = n_distinct(shipname), 
-                                        callsigns = n_distinct(shipname)) #%>% group_by(names) %>% 
-# plot this out 
-ggplot(names_df) +
-  geom_histogram(aes(x=names)) +
-  labs(x='Number of Names', y='Number of Vessels')+
-  theme_gfw()+
-  # theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), 
-        axis.text=element_text(size=11), axis.title=element_text(size=12,face="bold"), 
-        legend.title=element_text(size=12), legend.text=element_text(size=11)) 
-
-#table(focal$shipname)
-
-```
-
- <span style="color:red">Note this text summary is deprecated with more recent analysis done by El which will be the basis of the research report</span>
-
-The vessel of interest have five distinct vessel name groupings within them
-1. names starting with FU of which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'FU'))$shipname)` distinct names with FU YUAN YU ... the most common pattern
-2. names starting with HAI of which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'HAI'))$shipname)` distinct names with HAI YANG ... the most common pattern
-3. names starting with LU RONG which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'LU'))$shipname)` distinct names with LURONG YUAN YU ... the most common pattern
-4. names starting with SHUN HANG which there are `r n_distinct(filter(voi_ais, stringr::str_starts(shipname, 'SHUN'))$shipname)` distinct names following this pattern. This aligns with SHUN HANG which are an AIS unit manufacturer and may relate to units being reset.
-
-One further vessel had the name LU QING YUAN YU 290. Only one MMSI transmitted this vessel name. 
-
-Clear vessel names with some iterations in the dataset
-- FU YUAN YU 715
-- FU YUAN YU 717
-- FU YUAN YU 9993
-- FU YUAN YU 9994
-- HAI HANG 1 
-- HAI HANG 2
-- HAI HANG 3
-- HAI HANG 5
-- HAI HANG 6 
-- LU QING YUAN YU 290
-- LU RONG YUAN YU 195 
-- LU RONG YUAN YU 581 
-- LU RONG YUAN YU 715 
-- LU RONG YUAN YU 197 
-- LU RONG YUAN YU 20 
-- LU RONG YUAN YU 277 
-- LU RONG YUAN YU 278 
-- LU RONG YUAN YU 717 
-- LU RONG YUAN YU 715 
-- SHUN HANG 1 
-- SHUN HANG 2
-- SHUN HANG 3
-- SHUN HANG 5
-- SHUN HANG 6
 
 # Established voi list 
-```{r, echo=FALSE}
+```{r import established VoI list from BQ, echo=FALSE}
 # Read in agreed 225 voi with TMT 
 
 q_voi_est <- c("SELECT * FROM `world-fishing-827.scratch_max.150_voi_ssvid`")
@@ -420,23 +305,7 @@ voi_est <- fishwatchr::gfw_query(query = q_voi_est,
 
 Look at the consistency of location and fleet size through space and time.
 
-```{r, echo=FALSE}
-working_df$year  <- year(working_df$timestamp) 
-working_df$month  <- month(working_df$timestamp) 
-#working_df %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_",str_replace_all(Sys.Date(), '-','_'),".csv")))
-
-# write out annual dfs to visaulise location and timing in QGIS
-# filter(working_df, year == '2020') %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_2020_",str_replace_all(Sys.Date(), '-','_'),".csv")))
-# filter(working_df, year == '2021') %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_2021_",str_replace_all(Sys.Date(), '-','_'),".csv")))
-# filter(working_df, year == '2022') %>% write.csv(here::here("data", ".", paste0("150_voi_working_df_2022_",str_replace_all(Sys.Date(), '-','_'),".csv")))
-
-
-
-```
-
-Map
-
-```{r, echo=FALSE}
+```{r Figure X global heatmap of 150 fleet AIS, echo=FALSE}
 
 # lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
 working_df$lat_bin <- round(working_df$lat/0.5)*0.5
@@ -488,7 +357,7 @@ ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_global_dark.png"))
 ```
 Pacific Map - note not currently working to transform raster to Pacific view 
 
-```{r, echo=FALSE, warning=F}
+```{r Figure X Pacific centered map of AIS postions, echo=FALSE, warning=F}
 
 # lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
 res <- 0.5
@@ -551,7 +420,7 @@ ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_pacific_dark.png"), 
 
 Atlantic Map - note not currently working to transform raster to Pacific view 
 
-```{r, echo=FALSE, warning=F}
+```{r Figue X Atlantic centrered map, echo=FALSE, warning=F}
 
 # lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
 res <- 0.5
@@ -614,7 +483,7 @@ ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_atlantic_dark.png"),
 
 North Pacifc Map  
 
-```{r, echo=FALSE, warning=F}
+```{r Figure X North pacific centered map, echo=FALSE, warning=F}
 
 # lets aggregate the data to lat/lon bins to use fishwatchr example mapping code 
 res <- 0.5
@@ -678,7 +547,7 @@ ggsave(here::here("outputs", "figures", "voi_ais_map_0.5deg_atlantic_dark.png"),
 # Ports 
 
 # Chinese Ports 
-```{r, echo=FALSE}
+```{r Look at port usage data, echo=FALSE}
 chn_ports <- readr::read_file(file = here::here("queries", ".", "150_voi_chn_ports.sql"))
 outside_chn_ais<- fishwatchr::gfw_query(query = chn_ports,
                                  run_query = TRUE,
@@ -689,258 +558,7 @@ outside_chn_ais<- fishwatchr::gfw_query(query = chn_ports,
 
 We want to evaluate when and where vessel of interest are changing there names. 
 
-```{r, echo=F}
-# ais_change_location_q <- readr::read_file(file = here::here("queries", ".", "ais_identity_changes_v1.sql"))
-# name_change <- fishwatchr::gfw_query(query = ais_change_location_q,
-#                                  run_query = TRUE,
-#                                  con = con)$data
-# 
-# name_change %>% saveRDS(here::here("data", ".", "ais_identity_changes.rds"))
-name_change <- read_rds(here::here("data", ".", "ais_identity_changes.rds"))
-name_change %>% write.csv(here::here("data", ".", "ais_identity_changes.csv"))
-
-# identify LU RONG YUAN YU 715 change points 
-# this name used on 13 MMSIs 
-lryy715 <- bind_rows(
-  # static 
-  name_change %>% filter(stringr::str_detect(static_name, '715$') |
-                       static_name  == 'LURONGYUANYU715' |
-                       static_name  == 'LURONGYUANYU 715'),
-  # prev 
-  name_change %>% filter(stringr::str_detect(next_name, '715$') |
-                       next_name == 'LURONGYUANYU715' |
-                       next_name == 'LURONGYUANYU 715')
-  )
-
-# look aat number of different MMSIs
-table(lryy715$ssvid)
-
-# check which names are there
-table(lryy715$static_name, lryy715$next_name)
-
-View(lryy715[1:1000,])
-
-# three names id through changes 
-lryy715 %>% group_by(ssvid) %>% summarise(
-  start =  min(timestamp), 
-  end = max(timestamp))
-
-# for 150400450 one position unrelated to other transmissions in the series   
-look_150400450 <- filter(name_change, ssvid == '150400450')
-ssvid_150400450 <- filter(name_change, ssvid == '150400450' & shipname == 'LURONGYUANYU 715')
-ssvid_150400450$group <- '150400450'
-
-# 150400460 transmission on FUYUANYU 715 so remove. 
-#look_150400460 <- filter(name_change, ssvid == '150400460')
-
-# for 15040046 transmissions over LURONGYUANYU 715
-look_150400465 <- filter(name_change, ssvid == '150400465')
-ssvid_150400465 <- filter(name_change, ssvid == '150400465' & between(as.Date(timestamp), as.Date('2022-12-20'), as.Date('2022-12-26')))
-ssvid_150400465$group <- '150400465'
-
-# for 150400467 transmissions over LURONGYUANYU 715 look to be one single position 
-look_150400467 <- filter(name_change, ssvid == '150400467')
-ssvid_150400467 <- filter(name_change, ssvid == '150400467' & shipname == 'LURONGYUANYU 715')
-ssvid_150400467$group <- '150400467'
-
-# for 150400471  transmissions over LURONGYUANYU 715 look to be one single position based on difference in time 
-look_150400471  <- filter(name_change, ssvid == '150400471')
-ssvid_150400471 <- filter(name_change, ssvid == '150400471' & shipname == 'LURONGYUANYU 715')
-ssvid_150400471$group <- '150400471'
-
-# for 150400476  transmissions over LURONGYUANYU 715 are isolated but could be related to the same vessel
-look_150400476  <- filter(name_change, ssvid == '150400476')
-ssvid_150400476 <- filter(name_change, ssvid == '150400476' & shipname == 'LURONGYUANYU 715')
-ssvid_150400476$group <- '150400476'
-
-ssvid_150400476_maybe <- filter(name_change, ssvid == '150400476' & between(as.Date(timestamp), as.Date('2022-01-06'), as.Date('2022-01-20')))
-
-# for 150400477  transmissions over FUYUANYU 715 are isolated but could be related to the same vessel
-#look_150400477  <- filter(name_change, ssvid == '150400477')
-
-#  only static is LU RONG YUAN YU 715  
-look_150400478  <- filter(name_change, ssvid == '150400478')
-ssvid_150400478 <-  filter(name_change, ssvid == '150400478' & between(as.Date(timestamp), as.Date('2021-06-30'), as.Date('2021-07-01')))
-ssvid_150400478$group <- '150400478'
-
-# for 150400480  transmissions over FUYUANYU 715 
-#look_150400480 <- filter(name_change, ssvid == '150400480')
-
-# 150400483 only static is LU RONG YUAN YU 715
-look_150400483  <- filter(name_change, ssvid == '150400483')
-ssvid_150400483  <-  filter(name_change, ssvid == '150400483' & between(as.Date(timestamp), as.Date('2022-07-30'), as.Date('2022-07-31')))
-ssvid_150400483$group <- '150400483'
-
-# 150400488 only static is LU RONG YUAN YU 715 - series of transmissions in December 2022 - what about before then
-look_150400488  <- filter(name_change, ssvid == '150400488')
-ssvid_150400488  <-  filter(name_change, ssvid == '150400488' & between(as.Date(timestamp), as.Date('2022-12-24'), as.Date('2022-12-25')))
-ssvid_150400488$group <- '150400488'
-
-# 150400499 only static is LU RONG YUAN YU 715 - most transmissions close in time but before static 
-look_150400499  <- filter(name_change, ssvid == '150400499')
-ssvid_150400499 <-  filter(name_change, ssvid == '150400499' & between(as.Date(timestamp), as.Date('2021-10-13'), as.Date('2021-10-16')))
-ssvid_150400499$group <- '150400499'
-
-# 150400502 only static is LU RONG YUAN YU 715 - one transmissions close in time but others quite seperate  
-look_150400502  <- filter(name_change, ssvid == '150400502')
-ssvid_150400502  <- filter(name_change, ssvid == '150400502' & between(as.Date(timestamp), as.Date('2021-10-11'), as.Date('2021-10-12')))
-ssvid_150400502$group <- '150400502'
-
-# bind together all the data  
-ssvid_150400453_g1 <- filter(name_change, ssvid == '150400453', 
-                            between(as.Date(timestamp), as.Date('2020-12-20'), as.Date('2020-12-29'))) 
-ssvid_150400453_g1$group <- '150400453-1'
-                            
-ssvid_150400453_g2 <- filter(name_change, ssvid == '150400453', 
-                            between(as.Date(timestamp), as.Date('2021-05-04'), as.Date('2021-07-02'))) 
-ssvid_150400453_g2$group <- '150400453-2'
-
-ssvid_150400453_g3 <- filter(name_change, ssvid == '150400453', 
-                            between(as.Date(timestamp), as.Date('2021-09-13'), as.Date('2021-11-30')))  
-ssvid_150400453_g3$group <- '150400453-3'
-
-ssvid_150400453_g3_t <- ssvid_150400453_g3 
-
-ssvid_150400453_g4 <- filter(name_change, ssvid == '150400453', 
-                            between(as.Date(timestamp), as.Date('2022-07-25'), as.Date('2022-12-28')))
-ssvid_150400453_g4$group <- '150400453-4'
-
-
-lryy715_time <- bind_rows(ssvid_150400450, ssvid_150400465, ssvid_150400467, ssvid_150400471, 
-                          ssvid_150400476, ssvid_150400478, ssvid_150400483, ssvid_150400488, 
-                          ssvid_150400499, ssvid_150400502, ssvid_150400453_g1, ssvid_150400453_g2, 
-                          ssvid_150400453_g3, ssvid_150400453_g4)
-
-
-head(lryy715_time)
-
-lryy715_time %>% group_by(ssvid) %>% summarise(n=n())
-
-lryy715_time_lines <- filter(lryy715_time, !ssvid %in% c('150400450', '150400467','150400471','150400476'))
-lryy715_time_points <- filter(lryy715_time, ssvid %in% c('150400450', '150400467','150400471','150400476'))
-
-
-
-```
-
-Maps 
-
-```{r, echo=F}
-best_proj <- "+proj=eqearth +lon_0=-80 +wktext"  #works 
-
-# set centre
-new_center <- -80
-
-# make sf object of lines for plotting 
-recenter_lryy715 <- lryy715_time_lines %>%
-  filter(!is.na(lat)) %>%
-  arrange(timestamp) %>%
-  sf::st_as_sf(., 
-               coords = c("lon", "lat"), 
-               crs = 4326) %>%
-  group_by(group) %>%
-  summarize(do_union = FALSE) %>%
-  sf::st_cast(., "MULTILINESTRING") %>%
-  fishwatchr::recenter_sf(., center = new_center, buffer = 0)
-
-
-# reset group levels so 150500453 colouration consistent 
-recenter_lryy715$group[stringr::str_detect(recenter_lryy715$group, '150400453')] <- '150400453'
-
-# make points for MMSIs with few transmitions 
-recenter_lryy715_points <- lryy715_time_points %>%
-  sf::st_as_sf(., 
-               coords = c("lon", "lat"), 
-               crs = 4326) %>%
-  fishwatchr::recenter_sf(., center = new_center, buffer = 0)
-
-# transform lines using best projection to try deal with 180 issue 
-reproj_lryy715 <- st_transform(recenter_lryy715, crs=best_proj)
-reproj_lryy715_points <- st_transform(recenter_lryy715_points, crs=best_proj)
-
-
-# make dark theme global map of activity 
-ggplot() +
-  geom_gfw_outline(center = new_center, 
-                   theme = "dark") +
-  geom_gfw_land(center = new_center) +
-  geom_sf(
-    data = reproj_lryy715,
-      aes(color = group) #, 
-    #color = fishwatchr::gfw_palettes$secondary[2]
-  ) +
-  geom_gfw_eez(theme = 'dark', center = new_center, alpha = 0.25) +
-  geom_sf(
-    data = reproj_lryy715_points,
-    aes(color = group),
-    size = 0.75
-  ) +
-  # scale_colour_manual(values = gfw_palettes$tracks) +
-  theme_gfw_map(theme = "light") +
-  theme(legend.position="right", ) +
-  labs(colour = 'MMSI')
-
-# save ouputs in the output directory 
-ggsave(here::here("outputs", "figures", "LRYY715_mmsi_map_v2.png"), width = 10, height = 7)
-write.csv(lryy715_time_lines, here::here("data", ".", "lryy715_time_lines.csv"))
-```
-
-```{r, echo=F}
-# make a timeseries plot of the LU RONG YUAN YU 715 name changes 
-time_plot_df <- lryy715_time %>% group_by(group) %>% summarise(
-  first_trans = min(timestamp), 
-  last_trans = max(timestamp),
-  n=n()
-)
-
-# make the individual periods of 150400453 in the same group for time plot 
-time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
-
-# plot out name changes with time plot 
-ggplot() +
-  geom_segment(
-    data = time_plot_df,
-    aes(
-      x = first_trans,
-      xend = last_trans,
-      # y = ssvid,
-      # yend = ssvid,      
-      y = group,
-      yend = group,
-      colour = group
-    ),
-    size = 2
-  ) + 
-  # plot points of ssvids with only single transmissions 
-  geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
-  labs(x= 'date', y='MMSI' )+
-  theme_classic() +
-  theme(legend.position="none")
-
-# save outputs in outputs directory 
-ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10, height = 7)
-  
-```
-```{r, echo=F}
-#look to see if LRYY277 has much transmission on other vessel ssvids. Doesn't appear to be significantly different  
-table(name_change$shipname)
-
-# find data associated to LURONGYUANYU277
-lryy277 <- bind_rows(
-  # static 
-  name_change %>% filter(stringr::str_detect(static_name, '277$') |
-                       static_name  == 'LURONGYUANYU277'),
-  # prev 
-  name_change %>% filter(stringr::str_detect(next_name, '277$') |
-                       next_name == 'LURONGYUANYU277')
-  )
-
-table(lryy277$ssvid)
-# same proble as LRYY715 don't proceed with plotting 
-
-```
-
-```{r, echo=F}
+```{r set up data for LLRYY715 case study, echo=F}
 #pull in ee data as it has cleaner names 
 df <- read.csv(here::here("data", ".", "150400453.csv"))
 
@@ -1013,7 +631,7 @@ time_plot_df3
 
 ```
 
-```{r, echo=F}
+```{r Figure 1 map of 150400453 name changes, echo=F}
 # set bouding box up 
 # bounding <- transform_box(xlim = c(-55, 100),
 #                           ylim = c(-90, 90),
@@ -1045,7 +663,7 @@ ggplot() +
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
   geom_gfw_eez(theme = 'dark', center = new_center, alpha = 0.25) +
-  # scale_colour_manual(values = gfw_palettes$tracks) +
+  scale_colour_manual(values = gfw_palettes$tracks) +
   theme_gfw_map(theme = "light") +
   theme(legend.position="bottom") +
   labs(colour = 'Vessel Name') #+
@@ -1057,7 +675,8 @@ ggplot() +
 ggsave(here::here("outputs", "figures", "LRYY715_name_map.png"), width = 10, height = 7)
 
 ```
-```{r, echo=F}
+
+```{r Figure 2 timeline of 150400453 name changes, echo=F}
 # time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
 
 # open up shipname by one day to be visible on plot 
@@ -1083,6 +702,7 @@ ggplot() +
     size = 2
   ) + 
   # geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
+  scale_colour_manual(values = gfw_palettes$tracks) +
   labs(x= 'Date', y='Vessel Name', colour='Vessel Name' )+
   #   scale_x_date("",
   #   date_minor_breaks = "months",
@@ -1110,6 +730,15 @@ ais_identity_q <- readr::read_file(file = here::here("queries", ".", "ais_identi
 daily_identity <- fishwatchr::gfw_query(query = ais_identity_q,
                                  run_query = TRUE,
                                  con = con)$data
+
+
+# read WKT points into spatial object
+daily_identity$pts <- lapply(daily_identity$avg_lat_lon, FUN = function(x) readWKT(x))
+
+# extract point coordinates
+daily_identity$lon <- coordinates(daily_identity$pts)[c(T,F)]
+daily_identity$lat <- coordinates(daily_identity$pts)[c(F,T)]
+
 
 # check data completeness 
 daily_identity %>% filter(ssvid == '150400453') %>% group_by(shipname) %>% summarise(first = min(day), last =max(day))
@@ -1206,7 +835,7 @@ ggplot() +
     ),
     size = 2
   ) + 
-  #scale_colour_manual(values = gfw_palettes$tracks) +
+  scale_colour_manual(values = gfw_palettes$tracks) +
   # geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
   labs(x= 'Date', y='Vessel Name', colour='Vessel Name' )+
   #   scale_x_date("",
@@ -1259,6 +888,7 @@ ggplot() +
       aes(color = shipname) #, 
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
+    scale_colour_manual(values = gfw_palettes$tracks) +
   geom_gfw_eez(theme = 'dark', center = new_center, alpha = 0.30) +
   theme_gfw_map(theme = "light") +
   theme(legend.position="bottom") +
@@ -1268,7 +898,7 @@ ggplot() +
     #        crs = bounding$out_crs)
 
 # save output in outputs directory 
-ggsave(here::here("outputs", "figures", "LRYY715_name_map_v2.png"), width = 10, height = 7)
+ggsave(here::here("outputs", "figures", "LRYY715_name_map_v3.png"), width = 10, height = 7)
 
 
 
@@ -1340,7 +970,7 @@ map <- ggplot() +
     #color = fishwatchr::gfw_palettes$secondary[2]
   ) +
   #geom_gfw_eez(theme = 'light', center = new_center, alpha = 0.2) +
-  # scale_colour_manual(values = gfw_palettes$tracks) +
+  scale_colour_manual(values = gfw_palettes$tracks) +
   theme_gfw_map(theme = "light") +
   theme(legend.position="right") +
   labs(colour = 'Name Group') +
@@ -1397,6 +1027,7 @@ fishwatchr::add_little_globe(map_atl,
 
 ggsave(here::here("outputs", "figures", "Name_group_locations_Atlantic.png"), width = 7, height = 8)
 ```
+
 ```{r, echo=F, warning=F}
 daily_identity$region <- 'Other'
 daily_identity$region[between(daily_identity$lon, -120, -72) & between(daily_identity$lat, -60, 0)] <- 'Pacific'
@@ -1720,17 +1351,17 @@ write.csv(test2, here::here("data", ".", "150_voi_annex_t2_formated.csv"))
 
 ```{r, echo=F}
 
-# # query to get best name on a day
-# q_top_six <- readr::read_file(file = here::here("queries", ".", "investigate_a_b.sql"))
-# 
-# # extract data 
-# data_a_b <- fishwatchr::gfw_query(query = q_top_six,
-#                                  run_query = TRUE,
-#                                  con = con)$data
-# 
-# data_a_b %>% saveRDS(here::here("data", ".", "top_6_ab_2023.rds"))
+# query to get best name on a day
+q_top_six <- readr::read_file(file = here::here("queries", ".", "investigate_a_b.sql"))
 
-data_a_b <- read_rds(here::here("data", ".", "top_6_ab_2023.rds"))
+# extract data
+data_a_b <- fishwatchr::gfw_query(query = q_top_six,
+                                 run_query = TRUE,
+                                 con = con)$data
+
+data_a_b %>% saveRDS(here::here("data", ".", "voi_ab_2020_2023.rds"))
+
+data_a_b <- read_rds(here::here("data", ".", "voi_ab_2020_2023.rds"))
 
 table(data_a_b$AIS_class, data_a_b$ssvid)
 
@@ -1742,9 +1373,88 @@ write.csv(data_150402944_b, here::here("data", ".", "150402944_b_2023.csv"))
 
 
 # seperate class A and class B
-data_150400453_a <- data_a_b %>% filter(ssvid == '150400453', AIS_class == 'A')
-data_150400453_b <- data_a_b %>% filter(ssvid == '150400453', AIS_class == 'B')
-write.csv(data_150400453_a, here::here("data", ".", "150400453_a_2023.csv"))
-write.csv(data_150400453_a, here::here("data", ".", "150400453_b_2023.csv"))
+data_150402951_a <- data_a_b %>% filter(ssvid == '150402951', AIS_class == 'A')
+data_150402951_b <- data_a_b %>% filter(ssvid == '150402951', AIS_class == 'B')
+write.csv(data_150402951_a, here::here("data", ".", "150402951_a_2021_2023.csv"))
+write.csv(data_150402951_b, here::here("data", ".", "150402951_b_2021_2023.csv"))
+
+```
+Check for activity within the closure location 32°S-44°S, 48°W-60°W and period July to September
+```{r, echo=F, warning=F}
+# get data in closure peirod
+closure_period <- filter(working_df, month %in% c(7,8,9))
+
+# filter data to within closure location
+closure_location <- filter(closure_period, between(lon, -60, -48), between(lat, -44, -32))
+# no data
+
+# test filter with full df 
+test <- filter(working_df, between(lon, -60, -48), between(lat,-44,-32))
+
+# map data in closure period to cross check 
+res <- 0.1
+closure_period$lat_bin <- round(closure_period$lat / res) * res
+closure_period$lon_bin <- round(closure_period$lon / res) * res
+
+Poly_Coord_df = data.frame(lon=c(-60, -48), lat=c(-44,-32))
+
+poly <- Poly_Coord_df %>% 
+  st_as_sf(coords = c('lon', 'lat'), 
+           crs = 4326) %>% 
+  st_bbox() %>% 
+  st_as_sfc()
+
+
+# count positions in each lat lon bin
+presence <- closure_period %>%
+  group_by(lat_bin, lon_bin) %>%
+    summarise(
+      positions = dplyr::n(), 
+    )
+
+# set upper limit
+up_lim <- 10000 
+#set plot center 
+new_center <- -60
+
+
+# set proj for bounding box
+best_proj <- "+proj=eqearth +lon_0=-60 +wktext"
+
+# set plot limits for Pacific 
+bounding_atlantic <- transform_box(xlim = c(-70, -50),
+                          ylim = c(-35, -55),
+                          output_crs = best_proj)
+  
+atlantic_map <- presence %>%
+  recenter_raster(raster_df = .,
+                  res = 1,
+                  x_lab = 'lon_bin',
+                  y_lab = 'lat_bin',
+                  fill_lab = 'positions',
+                  center = new_center) %>% 
+  ggplot()+
+  geom_gfw_outline(center = new_center, theme = "dark") +
+  geom_raster(aes(x= lon_bin, y=lat_bin, fill = positions)) +
+    geom_gfw_eez(theme = 'dark', alpha = 0.4, center = new_center) +
+    geom_gfw_land(theme = 'dark', center = new_center) +
+    geom_sf(data=poly, fill=NA, colour='red')+
+    scale_fill_gradientn(colors = gfw_palette('map_effort_dark'),
+                       #limits = c(0,up_lim),
+                       oob = scales::squish,
+                       na.value = NA) +   
+    coord_sf(xlim = c(bounding_atlantic$box_out[['xmin']], bounding_atlantic$box_out[['xmax']]),
+           ylim = c(bounding_atlantic$box_out[['ymin']], bounding_atlantic$box_out[['ymax']]),
+           crs = bounding_atlantic$out_crs) +
+      labs(fill = 'AIS Positions') +
+      theme_gfw_map(theme = 'light') 
+
+
+fishwatchr::add_little_globe(atlantic_map,
+                             main_box = bounding_atlantic,
+                             globe_rel_size = '0.25',
+                             globe_just = 'inside',
+                             globe_position = 'upperleft')  
+ 
 
 ```

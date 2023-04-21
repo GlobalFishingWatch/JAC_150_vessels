@@ -38,7 +38,11 @@
     -- Use eez code to restrict to Sierra Leone EEZ
     -- AND eez IN ('8390')
     -- Use aoi to restrict to SLE buffer (including EEZ)
-    AND ssvid IN ('150402944', '150400453', '150402949', '150402940', '150402947', '150402951')
+
+    --AND ssvid IN ('150402944', '150400453', '150402949', '150402940', '150402947', '150402951')
+    AND ssvid IN (SELECT CAST(ssvid AS string) FROM `world-fishing-827.scratch_max.150_voi_ssvid`)
+    OR ssvid IN ('412331285', '412420574', '412334074', '412420659','412440717', '412440716', '412336962', '412331283',
+                          '412331284', '412331282', '412331281', '412331279')
       )
 
   SELECT
