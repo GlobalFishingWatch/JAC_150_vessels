@@ -399,3 +399,143 @@ ggplot() +
 ggsave(here::here("outputs", "figures", "LRYY715_timeline_map.png"), width = 10, height = 7)
   
 ```
+
+
+```{r Figure 2 timeline of 150400453 name changes, echo=F}
+# time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
+
+# open up shipname by one day to be visible on plot 
+time_plot_df2$last_trans[time_plot_df2$shipname == 'LURONGYUANYU 581']
+# "2021-02-17 18:06:00 GMT"
+time_plot_df2$last_trans[time_plot_df2$shipname == 'LURONGYUANYU 581'] <- "2021-02-18 18:06:00 GMT"
+time_plot_df3$last_trans[time_plot_df3$shipname == 'LURONGYUANYU 581'] <- "2021-02-18 18:06:00 GMT"
+
+
+# make timeline plot of name changes 
+ggplot() +
+  geom_segment(
+    data = time_plot_df3,
+    aes(
+      x = first_trans,
+      xend = last_trans,
+      # y = ssvid,
+      # yend = ssvid,      
+      y = region,
+      yend = region,
+      colour = shipname
+    ),
+    size = 2
+  ) + 
+  # geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
+  scale_colour_manual(values = gfw_palettes$tracks) +
+  labs(x= 'Date', y='Vessel Name', colour='Vessel Name' )+
+  #   scale_x_date("",
+  #   date_minor_breaks = "months",
+  #   date_breaks = "year",
+  #   date_labels = "%Y",
+  #   limits = c(as.Date("2020-01-01"), as.Date("2022-12-31")),
+  #   expand = c(0, 0)
+  # )
+  theme_classic() +
+  theme(legend.position="bottom")
+
+# save outputs 
+ggsave(here::here("outputs", "figures", "LRYY715_timeline_map_v3.png"), width = 10, height = 7)
+  
+```
+
+```{r, echo=F, warning=F}
+daily_identity$region <- 'Other'
+daily_identity$region[between(daily_identity$lon, -120, -72) & between(daily_identity$lat, -60, 0)] <- 'Pacific'
+daily_identity$region[between(daily_identity$lon, -61, -50) & between(daily_identity$lat, -49, -37)] <- 'Atlantic'
+
+
+daily_identity
+
+
+# df <- df %>% group_by(ssvid, shipname) %>% mutate(gap_days = difftime(timestamp, lag(timestamp), units=c('days')))
+# 
+# # make gap segments logical column
+# df$seg <- FALSE
+# df$seg[df$gap_days<5] <- TRUE
+# 
+# 
+# # identify group change points based on segment differences - bit of a hack but it works 
+# j=1
+# i=1
+# df$grp <- NA
+# for (i in 2:nrow(df)){
+#   if(df$seg[i] != df$seg[i-1]){
+#     df$grp[i] <- j+1
+#     j = j+1 
+#     } else {df$grp[i] = j}
+# }
+# # manually set group point 1
+# df$grp[1] <- 1
+# 
+# # change points to vessel names currently go into their own group (due to difference in true false) - change this to the next group  
+# grp_tab <- df %>% group_by(grp) %>% summarise(n=n())
+# grp_tab$grp[grp_tab$n==1]
+# df$grp[df$grp %in% grp_tab$grp[grp_tab$n==1]] <- df$grp[df$grp %in% grp_tab$grp[grp_tab$n==1]] +1
+# 
+# # adjust change point 2 to go into group 3 
+# df$grp[df$grp == 2] <- df$grp[df$grp == 2]+1 
+# 
+# # make segments based on change points        
+# time_plot_df2 <- df %>% group_by(shipname, grp) %>% summarise(
+#   first_trans = min(timestamp), 
+#   last_trans = max(timestamp),
+#   n=n()
+# )
+# time_plot_df2
+
+
+# # plot out name changes with time plot 
+# ggplot() +
+#   geom_point(
+#     data = name_change_l,
+#     aes(
+#       x = timestamp, 
+#       y = ssvid
+#     ),
+#     size = 2
+#   ) + 
+#   # plot points of ssvids with only single transmissions 
+#   labs(x= 'Date', y='MMSI' )+
+#   theme_classic() +
+#   theme(legend.position="none")
+
+time_plot_df <- daily_identity %>% group_by(region, shipname) %>% summarise(
+  first_trans = min(day), 
+  last_trans = max(day),
+  n=n()
+)
+
+# make the individual periods of 150400453 in the same group for time plot 
+time_plot_df$group[stringr::str_detect(time_plot_df$group, '150400453')] <- '150400453'
+
+# plot out name changes with time plot 
+ggplot() +
+  geom_segment(
+    data = time_plot_df,
+    aes(
+      x = first_trans,
+      xend = last_trans,
+      # y = ssvid,
+      # yend = ssvid,      
+      y = group,
+      yend = group,
+      colour = group
+    ),
+    size = 2
+  ) + 
+  # plot points of ssvids with only single transmissions 
+  geom_point(data=filter(time_plot_df, n<=2), aes(y=group, x=first_trans))+
+  labs(x= 'date', y='MMSI' )+
+  theme_classic() +
+  theme(legend.position="none")
+
+
+ggsave(here::here("outputs", "figures", "name_change_times.png"))
+
+```
