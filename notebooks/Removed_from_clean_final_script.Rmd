@@ -539,3 +539,150 @@ ggplot() +
 ggsave(here::here("outputs", "figures", "name_change_times.png"))
 
 ```
+
+
+```{r, echo=F}
+head(name_change)
+name_change <- name_change %>% mutate(year= year(timestamp), month=month(timestamp))
+
+View(filter(name_change %>% filter(ssvid %in% c('150402951','150402949','150402947','150402944','150402940', '150400453')), speed<6) %>% 
+  group_by(ssvid, region, speed_bin, year) %>% 
+    summarise(transmissions=n()))
+```
+
+
+
+```{r, echo=F}
+
+plot_points <- 
+  voi_150402944 %>%
+  filter(!is.na(lat), !is.na(implied_speed_knots))
+
+# 30/11/2021 South Atantic class B
+# 29/07/2021 China
+
+max(plot_points$meters_to_prev)/1800
+max(plot_points$implied_speed_knots)
+write.csv(plot_points, here::here("data", ".", "plot_points_150402944.csv"))
+
+voi_150402944_a <- voi_150402944 %>% filter(between(timestamp, date_start, date_end), AIS_class == 'A') 
+voi_150402944_b <- voi_150402944 %>% filter(between(timestamp, date_start, date_end), AIS_class == 'B') 
+
+# make st object of identity points
+recenter_150402944_p1 <- voi_150402944_a %>%
+  dplyr::select(timestamp, lat, lon) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) %>%
+  # group_by(AIS_class) %>%
+  arrange(timestamp) %>%
+  summarize(do_union = FALSE) %>%
+  sf::st_cast(., "LINESTRING") %>%
+  fishwatchr::recenter_sf(., center = new_center, buffer=0)
+
+recenter_150402944_p1_trans <- st_transform(recenter_150402944_p1, crs=best_proj)
+
+recenter_150402944_p2 <- voi_150402944_b %>%
+  dplyr::select(timestamp, lat, lon) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) %>%
+  # group_by(AIS_class) %>%
+  arrange(timestamp) %>%
+  summarize(do_union = FALSE) %>%
+  sf::st_cast(., "LINESTRING") %>%
+  fishwatchr::recenter_sf(., center = new_center, buffer=0)
+
+recenter_150402944_p2_trans <- st_transform(recenter_150402944_p2, crs=best_proj)
+  # geom_sf(data = recenter_150402944_p1_trans, colour=gfw_palettes$primary[1]) +
+  # geom_sf(data = recenter_150402944_p2_trans, colour=gfw_palettes$primary[2]) +
+
+# make land object at default scale of  10 
+land_sf <- rnaturalearth::ne_countries(scale = 10,
+                                       returnclass = "sf")
+
+# manual bounding box bounds set to +/- buf 
+buf <- 0.1
+bounding_box <- transform_box(xlim = c(min(ts_plot_df$lon) - buf,
+                                               max(ts_plot_df$lon) + buf),
+                                      ylim = c(min(ts_plot_df$lat) - buf,
+                                               max(ts_plot_df$lat) + buf),
+                                      output_crs = gfw_projections('Equal Earth')$proj)
+
+# make a track object colored by speed 
+track_sf <- make_track(ts_plot_df,
+                       color_by = 'slow_speed')
+
+# pull out vessel mmsi 
+vessel_mmsi <- track_sf %>%
+    sf::st_drop_geometry(.) %>%
+    dplyr::distinct(ssvid) %>%
+    dplyr::pull(ssvid)
+
+# set land to light theme colours 
+land_fill = fishwatchr::gfw_palettes$map_country_light[1]
+land_color = fishwatchr::gfw_palettes$map_country_light[2]
+
+# set grid colour 
+grid_color = 'grey85'
+
+# set vessel track geom based on speed
+vessel_track_geom <-
+  geom_sf(data = track_sf,
+          aes(
+            color = slow_speed,
+            group = ssvid
+          )
+      )
+
+# set geom color scale to speed too. 
+vessel_track_colorscale <-
+  scale_color_manual("",
+                     breaks = c(FALSE, TRUE),
+                     values = c(
+                       "#76ADAD",
+                       "#E34D4E",
+                       'grey85'
+                     ),
+                     labels = c(
+                       "> 5 knots",
+                       "< 5 knots")
+                     )
+
+vessel_name <- 'LU RONG YUAN YU 715'
+
+map <- ggplot() +
+  geom_sf(
+    data = land_sf,
+    fill = land_fill,
+    color = land_color,
+    size = 0.2
+  ) +
+  vessel_track_geom +
+  vessel_track_colorscale +
+    geom_gfw_eez(colour='black', lty=2,lwd=1.2, theme ='light', proj = "+proj=eqearth +datum=WGS84 +wktext") +
+  coord_sf(
+    xlim = c(bounding_box$box_out[["xmin"]], bounding_box$box_out[["xmax"]]),
+    ylim = c(bounding_box$box_out[["ymin"]], bounding_box$box_out[["ymax"]]),
+    crs = bounding_box$out_crs
+  ) +
+  fishwatchr::theme_gfw_map(theme = 'light') +
+  labs(title = vessel_name,
+       subtitle = vessel_mmsi, 
+       fill = 'Speed') +
+    theme(
+    # legend.position = c(1.7,0.2),
+    legend.position = 'bottom',
+    # legend.position = 'none',
+    legend.justification = "right",
+    # panel.border = element_rect(fill = NA, color = 'grey15'),
+    plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
+    panel.grid.major = element_line(colour = grid_color,
+                                    size = 0.1), 
+    plot.title=element_text(size=10),
+    plot.subtitle=element_text(size=9)
+  ) 
+
+
+```
+
