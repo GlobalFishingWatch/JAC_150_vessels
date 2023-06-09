@@ -46,7 +46,7 @@ load_or_install_libraries <- function(x){
 }
 
 #  Then try/install packages...
-load_or_install_libraries( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here", "sf", "extrafont", "patchwork", "terra", "rgeos") )
+load_or_install_libraries( c("tidyverse" , "bigrquery" ,"devtools", "DBI","glue", "lubridate", "here", "sf", "extrafont", "patchwork", "terra", "rgeos", "ggspatial") )
 
 # get fishwatch r independently 
 if (!require("fishwatchr")) {devtools::install_github("GlobalFishingWatch/fishwatchr")}
@@ -506,12 +506,16 @@ new_center <- 160
 best_proj <- "+proj=eqearth +lon_0=160 +wktext"
 
 # set plot limits for Pacific 
-bounding_np <- transform_box(xlim = c(130, 190),
+bounding_np <- transform_box(xlim = c(130, -170),
                              #xlim = c(-170, 130),
                            #xlim = c(130, -170),
                           ylim = c(35, 50),
                           output_crs = best_proj)
-  
+
+# Specify custom x-axis breaks and labels
+custom_breaks <- c(130,150,170, -170)
+custom_labels <- c("130° E", "150° E", "170° E", "170° W")
+
 north_pacific_map <- presence %>%
   recenter_raster(raster_df = .,
                   res = 1,
@@ -529,11 +533,11 @@ north_pacific_map <- presence %>%
                        oob = scales::squish,
                        na.value = NA) +   
     coord_sf(xlim = c(bounding_np$box_out[['xmin']], bounding_np$box_out[['xmax']]),
-           ylim = c(bounding_np$box_out[['ymin']], bounding_np$box_out[['ymax']]),
-           crs = bounding_np$out_crs) +
-      scale_x_continuous(breaks=waiver(), n.breaks=10)+
-      labs(fill = 'AIS Positions') +
-      theme_gfw_map(theme = 'light') 
+      ylim = c(bounding_np$box_out[['ymin']], bounding_np$box_out[['ymax']]),
+      crs = bounding_np$out_crs) +
+    scale_x_continuous(breaks = custom_breaks, labels = custom_labels)+
+    labs(fill = 'AIS Positions') +
+    theme_gfw_map(theme = 'light') 
 
 
 fishwatchr::add_little_globe(north_pacific_map,
@@ -1130,6 +1134,10 @@ write.csv(filter(data_a_b,ssvid == '150402944', year =='2023'), here::here("data
 
 
 voi_150402951 <- data_a_b %>% filter(ssvid == '150402951')
+voi_150402951_toi <- filter(data_a_b, ssvid == '150402951', between(timestamp, as.POSIXct('2021-12-01'), as.POSIXct('2022-02-15'))) %>% arrange(timestamp)
+write.csv(voi_150402951_toi, here::here("data", ".", "150402951_01dec2021_15feb2022.csv"))
+
+
 
 table(is.na(voi_150402951$implied_speed_knots), voi_150402951$year)
 table(voi_150402951$AIS_class, voi_150402951$year)
@@ -1163,15 +1171,39 @@ seg_summary <- data_a_b %>%
               mutate(overlapping_seg = start_seg < lag(end_seg))
 
 seg_summary_add <- filter(seg_summary, positions >5) %>% mutate(overlapping_seg = start_seg < lag(end_seg))
-seg_summary %>% filter(overlapping_seg)
+seg_summary_add$ndx <- seq(1, nrow(seg_summary_add), 1)
 
+# identify overlapping segs
+seg_ndx <- seg_summary_add %>% filter(overlapping_seg)
+
+# identify segments before the overlapping segments too 
+index <- c(seg_ndx$ndx, seg_ndx$ndx-1)
+
+# save indexed df
+df_voi <- seg_summary_add[sort(index),]
+
+# remove duplicates 
+df_voi_np <- df_voi[!duplicated(seg_summary_add[sort(index),]),]
+
+# write out interesting segments
+write.csv(df_voi_np, here::here("data", ".", "relevant_overlapping_segs_voi.csv"))
+
+# 412334074 segments 
+seg1 <- filter(data_a_b, seg_id=='412334074-2022-06-26T17:05:55.000000Z')
+seg2 <- filter(data_a_b, seg_id=='412334074-2022-09-10T19:45:00.000000Z')
+
+# write out interesting segments
+write.csv(seg1, here::here("data", ".", "412334074_seg1.csv"))
+write.csv(seg2, here::here("data", ".", "412334074_seg2.csv"))
+
+# number of segments per vessel
 table(seg_summary$ssvid, seg_summary$overlapping_seg)
 
 
 write.csv(filter(data_a_b, seg_id %in% c('412334074-2022-04-19T16:59:48.000000Z','412334074-2021-12-05T03:43:08.080000Z')), here::here("data", ".", "overlapping_seg_check.csv"))
 ```
 
-```{r map of 150402944 activity, echo=F}
+```{r map of 150402944 activity different res, echo=F}
 # just 150402944
 voi_150402944 <- data_a_b %>% filter(ssvid == '150402944') %>% arrange(timestamp)
 
@@ -1248,12 +1280,13 @@ ggplot() +
   labs(colour = 'AIS class') 
 
 ```
+
 ```{r area where we see two vessels transmitting, echo=F, warning=F}
 # add day to count values 
 voi_150402944$day <- day(voi_150402944$timestamp)
 
 # set focal date periods 
-date_start <- as.POSIXct('2023-02-01')
+date_start <- as.POSIXct('2023-01-30')
 date_end <- as.POSIXct('2023-02-08')
 
 # examine data in period of interest 
@@ -1262,7 +1295,7 @@ voi_150402944 %>% filter(between(timestamp, date_start, date_end)) %>%
                 summarise(days = n_distinct(day), transmissions = n(), start = min(timestamp), end = max(timestamp))
 
 # set dfs for plotting 
-voi_150402944_t <-voi_150402944 %>% filter(between(timestamp, date_start, date_end))
+voi_150402944_t <- voi_150402944 %>% filter(between(timestamp, date_start, date_end))
 test <- filter(voi_150402944_t, implied_speed_knots>20)
 quantile(voi_150402944_t$implied_speed_knots, na.rm=T)
 
@@ -1272,9 +1305,9 @@ new_center <- -60
 best_proj <- "+proj=eqearth +lon_0=-60 +wktext"
 
 # set plot limits for high res Atlantic map  
-bounding_atlantic <- transform_box(xlim = c(-60, -60.8),
+bounding_atlantic <- transform_box(xlim = c(-60, -61),
                           ylim = c(-44.75, -46),
-                          output_crs = best_proj)
+                          output_crs = 4326)
 
 # make st object of identity points
 recenter_150402944_t <- voi_150402944_t %>%
@@ -1288,7 +1321,7 @@ recenter_150402944_t <- voi_150402944_t %>%
   sf::st_cast(., "LINESTRING") %>%
   fishwatchr::recenter_sf(., center = new_center, buffer=0)
 
-recenter_150402944_t_trans <- st_transform(recenter_150402944_t, crs=best_proj)
+recenter_150402944_t_trans <- st_transform(recenter_150402944_t, crs=4326)
 
 name_change_df <- data.frame(name=c('LURONGYUANYU601', 'FUYUANYU9993', 'LURONGYUANYU601','FUYUANYU9993', 'LUWENYUANGYU601', 'FUYUANYU9993', 'LURONGYUANYU277'), 
            lat=c(-45.50525, -45.52593,-45.52582333,-45.52577,-45.121805, -45.12711, -45.681345), 
@@ -1297,8 +1330,8 @@ name_change_df <- data.frame(name=c('LURONGYUANYU601', 'FUYUANYU9993', 'LURONGYU
                        '03/02/2023  05:01:41', '04/02/2023  04:28:30', '04/02/2023  10:33:21', '14/02/2023  04:15:55'))
 
 # make st object of identity points
-#name_change_points <- name_change_df %>%
-name_change_points <- test %>%
+name_change_points <- name_change_df %>%
+# name_change_points <- test %>%
   sf::st_as_sf(., 
                coords = c("lon", "lat"), 
                crs = 4326) 
@@ -1312,6 +1345,7 @@ map_dif <- ggplot() +
   geom_gfw_eez(proj = gfw_projections("Equal Earth")$proj, colour='black') +
   geom_sf(data = recenter_150402944_t_trans, aes(colour=AIS_class)) +
   geom_sf(data = name_change_points_trans, colour='black') +
+  # geom_sf_label(data = name_change_points_trans, aes(label = name), color = "black", size = 4)+
   scale_colour_manual(values = gfw_palettes$primary) +
   theme_gfw_map(theme = "light") +
   theme(legend.position="right") +
@@ -1321,24 +1355,192 @@ map_dif <- ggplot() +
            crs = bounding_atlantic$out_crs)
 
 
-ts_plot_df <- voi_150402944_t %>%
-    group_by(AIS_class) %>% 
-  dplyr::mutate(next_time = dplyr::lead(timestamp),
-                time_diff_hr = as.numeric(difftime(next_time,
-                                                   timestamp,
-                                                   tz = 'UTC',
-                                                   units = 'sec'))/3600,
-                next_far = ifelse(time_diff_hr > 3, TRUE, FALSE),
-                prev_far = ifelse(lead(next_far) == TRUE, TRUE, FALSE),
-                AIS_class_m = as.character(ifelse(next_far == TRUE | prev_far == TRUE, NA , AIS_class)),
-                slow_speed = ifelse(speed_knots<5, TRUE, FALSE))
+# ts_plot_df <- voi_150402944_t %>%
+#     group_by(AIS_class) %>% 
+#   dplyr::mutate(next_time = dplyr::lead(timestamp),
+#                 time_diff_hr = as.numeric(difftime(next_time,
+#                                                    timestamp,
+#                                                    tz = 'UTC',
+#                                                    units = 'sec'))/3600,
+#                 next_far = ifelse(time_diff_hr > 3, TRUE, FALSE),
+#                 prev_far = ifelse(lead(next_far) == TRUE, TRUE, FALSE),
+#                 AIS_class_m = as.character(ifelse(next_far == TRUE | prev_far == TRUE, NA , AIS_class)),
+#                 slow_speed = ifelse(speed_knots<5, TRUE, FALSE))
+# 
+# # make the line plot coloured by speed
+# line_geom <-
+#   geom_path(data = ts_plot_df,
+#             aes(x= timestamp,
+#                 #eval(as.symbol(speed_knots)),
+#                 y= speed_knots,
+#                 color = AIS_class,
+#                 group  = AIS_class))
+# # set colours 
+# line_colorscale <-
+#   scale_color_manual('',
+#                      # breaks = c(FALSE,TRUE),
+#                      values = c('#E34D4E',
+#                                 '#76ADAD',
+#                                 'grey85'))
+#                      # labels = NULL)
+#                      #labels = c('>5 knots','< 5 knots'))
+# 
+# # time series plot of speed
+# time_series_plot <- ggplot() +
+#   line_geom +
+#   # point_geom +
+#   # line_sizescale +
+#   line_colorscale +
+#   #y_axis +
+#   scale_x_datetime('\nDate') +
+#   fishwatchr::theme_gfw() +
+#   theme(
+#         legend.position = 'none',
+#         legend.justification = 'right',
+#         panel.grid.minor = element_blank(),
+#         panel.grid.major.y = element_blank(),
+#         panel.background = element_rect(fill = '#ffffff'),
+#         panel.border = element_rect(fill = NA, color = '#000000'),
+#         plot.background = element_rect(fill = '#ffffff'))+
+#         # axis.text.x = element_blank(),
+#         # axis.title.x = element_blank()) +
+#   labs(y='Speed (knots)')
+
+## putt plots together in stacked display
+
+# num_components <- 1
+# page_layout <- patchwork::plot_layout(ncol = 1,
+#                                       widths = c(1.5,1),
+#                                       heights = c(1 - 0.2, 0.2),
+#                                       guides = 'auto')
+#                                       # guides = 'keep')
+# 
+# # arrange plots on page
+# fishwatchr::add_little_globe(map_dif,
+#                              main_box = bounding_atlantic,
+#                              globe_rel_size = '0.25',
+#                              globe_just = 'inside',
+#                              globe_position = 'upperright') +
+#     time_series_plot +
+#     page_layout
+
+map_dif + annotation_scale(location = "br", width_hint=0.25)
+
+map_dif + ggsn::scalebar(x.min = bounding_atlantic$box_out[['xmin']], 
+                 x.max = bounding_atlantic$box_out[['xmax']], 
+                 y.min = bounding_atlantic$box_out[['ymin']], 
+                 y.max = bounding_atlantic$box_out[['ymax']],
+                 model = "WGS84",  
+                 dist_unit = "nm", 
+                 transform = TRUE,
+                 location = "bottomleft",
+                 height = 0.02, 
+                 dist = 5, 
+                 st.size = 3, 
+                 border.size = 0.4)
+
+
+ggsave(here::here("outputs", "figures", "Atlantic_highres_150402944_01_09Jun2023.png"))
+
+
+```
+
+```{r 18 July 2022 example, echo=F, warning=F}
+
+voi_150402944 <- data_a_b %>% filter(ssvid == '150402944') %>% arrange(timestamp)
+
+# add day to count values 
+voi_150402944$day <- day(voi_150402944$timestamp)
+
+# set focal date periods 
+date_start <- as.POSIXct('2022-07-18')
+date_end <- as.POSIXct('2022-07-19')
+
+# set dfs for plotting 
+voi_150402944_t <-voi_150402944 %>% filter(between(timestamp, date_start, date_end))
+#write.csv(voi_150402944_t, here::here("data", ".", "150402944_18Jul2022.csv"))
+
+new_center <- -60
+
+# set proj for bounding box
+# best_proj <- "+proj=eqearth +lon_0=-60 +wktext"
+best_proj <- 4326
+
+# set plot limits for high res Atlantic map  
+bounding_atlantic <- transform_box(xlim = c(-58.2, -60),
+                          ylim = c(-44.4, -45.5),
+                          output_crs = best_proj)
+
+# make st object of identity points
+recenter_150402944_t <- voi_150402944_t %>%
+  dplyr::select(timestamp, lat, lon) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) %>%
+  arrange(timestamp) %>%
+  summarize(do_union = FALSE) %>%
+  sf::st_cast(., "LINESTRING") %>%
+  fishwatchr::recenter_sf(., center = new_center, buffer=0)
+
+recenter_150402944_t_trans <- st_transform(recenter_150402944_t, crs=best_proj)
+
+# make st object of identity points
+name_change_points <- voi_150402944_t %>%
+    dplyr::select(AIS_class, timestamp, lat, lon) %>%
+  sf::st_as_sf(., 
+               coords = c("lon", "lat"), 
+               crs = 4326) %>%
+  group_by(AIS_class) %>%
+  arrange(timestamp) %>%
+  summarize(do_union = FALSE) %>%
+  sf::st_cast(., "POINT") %>%
+  fishwatchr::recenter_sf(., center = new_center, buffer=0)
+
+# reproject identity points object 
+name_change_points_trans <- st_transform(name_change_points, crs=4326)
+
+# map out the data 
+map_dif <- ggplot() +
+  geom_gfw_land(theme = 'light', proj = gfw_projections("Equal Earth")$proj) +
+  geom_gfw_eez(proj = gfw_projections("Equal Earth")$proj, colour='black') +
+  geom_sf(data = recenter_150402944_t_trans, colour='black') +
+  geom_sf(data = name_change_points_trans, aes(colour=AIS_class)) +
+  # geom_sf_label(data = name_change_points_trans, aes(label = name), color = "black", size = 4)+
+  scale_colour_manual(values = gfw_palettes$primary) +
+  theme_gfw_map(theme = "light") +
+  theme(legend.position="right") +
+  labs(colour = 'AIS class') +
+  coord_sf(xlim = c(bounding_atlantic$box_out[['xmin']], bounding_atlantic$box_out[['xmax']]),
+           ylim = c(bounding_atlantic$box_out[['ymin']], bounding_atlantic$box_out[['ymax']]),
+           crs = bounding_atlantic$out_crs)
+
+map_dif + ggsn::scalebar(x.min = bounding_atlantic$box_out[['xmin']], 
+                                               x.max = bounding_atlantic$box_out[['xmax']], 
+                                               y.min = bounding_atlantic$box_out[['ymin']], 
+                                               y.max = bounding_atlantic$box_out[['ymax']],
+                                               model = "WGS84",  
+                                               dist_unit = "nm", 
+                                               transform = TRUE,
+                                               location = "bottomleft",
+                                               height = 0.02, 
+                                               dist = 5, 
+                                               st.size = 3, 
+                                               border.size = 0.4)
+
+
+
+ggsave(here::here("outputs", "figures", "Atlantic_highres_150402944_18Jul2022_v2.png"))
+```
+
+```{r 18 July 2022 example time series, echo=F, warning=F}
+voi_150402944_t
 
 # make the line plot coloured by speed
 line_geom <-
-  geom_path(data = ts_plot_df,
+  geom_path(data = voi_150402944_t,
             aes(x= timestamp,
                 #eval(as.symbol(speed_knots)),
-                y= speed_knots,
+                y= meters_to_prev,
                 color = AIS_class,
                 group  = AIS_class))
 # set colours 
@@ -1370,31 +1572,14 @@ time_series_plot <- ggplot() +
         plot.background = element_rect(fill = '#ffffff'))+
         # axis.text.x = element_blank(),
         # axis.title.x = element_blank()) +
-  labs(y='Speed (knots)')
+  labs(y='Meters to previous')
 
-## putt plots together in stacked display
 
-# num_components <- 1
-# page_layout <- patchwork::plot_layout(ncol = 1,
-#                                       widths = c(1.5,1),
-#                                       heights = c(1 - 0.2, 0.2),
-#                                       guides = 'auto')
-#                                       # guides = 'keep')
-# 
-# # arrange plots on page
-# fishwatchr::add_little_globe(map_dif,
-#                              main_box = bounding_atlantic,
-#                              globe_rel_size = '0.25',
-#                              globe_just = 'inside',
-#                              globe_position = 'upperright') +
-#     time_series_plot +
-#     page_layout
-
-map_dif
-ggsave(here::here("outputs", "figures", "Atlantic_highres_150402944_01_08Feb2023.png"))
+ggsave(here::here("outputs", "figures", "timeseries_150402944_18Feb2023.png"))
 
 
 ```
+
 
 # Annex 
 
@@ -1403,6 +1588,9 @@ ggsave(here::here("outputs", "figures", "Atlantic_highres_150402944_01_08Feb2023
 # sourced from https://docs.google.com/spreadsheets/d/1B4zpKF9RKlvmRZU4EMTsJnqcA4PBhUtg/edit?usp=sharing&ouid=101477854774495795304&rtpof=true&sd=true tabs Names2 & Names3
 annex1 <- read.csv(here::here("data", ".", "150_voi_annex_table1_input.csv"))
 annex2 <- read.csv(here::here("data", ".", "150_voi_annex_table2_input.csv"))
+
+#restore old ssvid label
+colnames(annex2)[1] <- 'ssvid'
 
 # drop extra columns 
 annex1_m <- annex1 %>% dplyr::select(-Known.Chinese.vessel, -imo, -Unknown.Chinese.vessel,
@@ -1427,7 +1615,7 @@ write.csv(dplyr::select(plot_df, vessel_name, imo, Owner, mmsi), here::here("dat
 
 
 # drop extra columns 
-annex2_m <- annex2 %>% dplyr::select(-Transmissions, -Name.count)
+annex2_m <- annex2[annex2$'Name.count'>1,] %>% dplyr::select(-Transmissions, -Name.count)
 
 # add colnames to string where true 
 test2 <- annex2_m %>% 
@@ -1437,12 +1625,27 @@ test2 <- annex2_m %>%
    #right_join(annex1_m) %>%
    #select(names(annex1_m), everything())
 
-# write out annex table 1
+# write out annex table 2
 write.csv(test2, here::here("data", ".", "150_voi_annex_t2_formated.csv"))
 
+annex3_m <- annex2[annex2$'Name.count'==1,] %>% dplyr::select(-Transmissions, -Name.count)
 
+# add colnames to string where true 
+test3 <- annex3_m %>% 
+   pivot_longer(cols = -ssvid) %>% 
+   group_by(ssvid) %>% 
+   summarise(mmsi = toString(name[as.logical(value)])) #%>% 
+   #right_join(annex1_m) %>%
+   #select(names(annex1_m), everything())
 
+# bind on transmissions to reformated table 
+test3_trans <- left_join(test3, dplyr::select(annex2[annex2$'Name.count'==1,], ssvid, Transmissions))
 
+#filter out non 15040 
+annex_3_final <- test3_trans %>% filter(stringr::str_detect(test3_trans$ssvid, '^1504'))
+
+# write out annex table 3
+write.csv(annex_3_final, here::here("data", ".", "150_voi_annex_t3_formated.csv"))
 ```
 
 # Activity in Chinese designated closure area 
